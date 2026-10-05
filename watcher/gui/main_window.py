@@ -250,6 +250,10 @@ class MainWindow:
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
         tooltip = Tooltip(notes_icon, watcher.notes)
+        # Also show the tooltip when hovering the label/detail text or the row
+        # itself, not just the small icon (Enter/Leave don't bubble in Tk).
+        for widget in (row, info_frame, label, detail):
+            tooltip.attach(widget)
         self._update_notes_icon(notes_icon, tooltip, watcher.notes)
 
         remove_btn = _make_label_button(

@@ -24,6 +24,17 @@ class Tooltip:
         self._after_id: Optional[str] = None
         self._tip_window: Optional[tk.Toplevel] = None
 
+        self.attach(widget)
+
+    def attach(self, widget: tk.Widget) -> None:
+        """
+        Bind the same hover/leave handlers to an additional widget.
+
+        Enter/Leave events don't bubble in Tk, so to make a tooltip appear
+        when hovering anywhere over a compound row (label, detail text,
+        icon, etc.) each child widget needs its own binding back to this
+        same Tooltip instance.
+        """
         widget.bind("<Enter>", self._on_enter, add="+")
         widget.bind("<Leave>", self._on_leave, add="+")
         widget.bind("<ButtonPress>", self._on_leave, add="+")
@@ -50,8 +61,11 @@ class Tooltip:
     def _show(self) -> None:
         if self._tip_window is not None or not self.text:
             return
-        x = self.widget.winfo_rootx() + 12
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        # Position near the current pointer (not just self.widget) since the
+        # hover that triggered this may have come from an attached sibling
+        # widget covering a different part of the row.
+        x = self.widget.winfo_pointerx() + 12
+        y = self.widget.winfo_pointery() + 12
 
         self._tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
