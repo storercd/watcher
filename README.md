@@ -97,15 +97,21 @@ and implement `notify(title, message)`, then wire it into
 `watcher.notifiers.router.NotificationRouter` under the mode(s) that should
 trigger it.
 
-## Tests
+## Tests and linting
 
 Unit tests cover the Jenkins polling/state-transition logic (HTTP calls are
-mocked, so no network or real Jenkins server is required):
+mocked, so no network or real Jenkins server is required). Linting is done
+with [ruff](https://docs.astral.sh/ruff/) (style, pyflakes, isort, McCabe
+complexity, and Google-style docstrings — see `pyproject.toml`):
 
 ```bash
-pip install -r requirements.txt   # installs pytest (the only dependency)
+pip install -r requirements.txt   # installs pytest + ruff (dev dependencies)
+ruff check .
 pytest
 ```
+
+Both run automatically on every pull request via the `CI` GitHub Actions
+workflow (`.github/workflows/ci.yml`), across Python 3.9–3.12.
 
 ## Known limitations / next steps
 

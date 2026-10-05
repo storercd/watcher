@@ -1,4 +1,5 @@
-"""Jenkins job watcher plugin.
+"""
+Jenkins job watcher plugin.
 
 Polls a Jenkins job's JSON API (``<job_url>/api/json``) anonymously and
 reports its build status. Detects state transitions and newly completed
@@ -20,7 +21,12 @@ REQUEST_TIMEOUT_SECONDS = 10
 
 
 def _fetch_job_json(job_url: str) -> Dict[str, Any]:
-    """Fetch and parse ``<job_url>/api/json`` anonymously. Raises on failure."""
+    """
+    Fetch and parse ``<job_url>/api/json`` anonymously. Raises on failure.
+
+    Returns:
+        The parsed JSON response body.
+    """
     url = job_url.rstrip("/") + "/api/json"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
@@ -28,7 +34,12 @@ def _fetch_job_json(job_url: str) -> Dict[str, Any]:
 
 
 def _status_from_job_json(data: Dict[str, Any]) -> (Status, str, Optional[int]):
-    """Translate Jenkins job JSON into a (Status, detail, build_number) tuple."""
+    """
+    Translate Jenkins job JSON into a (Status, detail, build_number) tuple.
+
+    Returns:
+        A tuple of (status, detail message, last build number).
+    """
     last_build = data.get("lastBuild")
     build_number = last_build.get("number") if last_build else None
 
@@ -61,6 +72,7 @@ class JenkinsWatcher(Watcher):
         label: str = "",
         last_build_number: Optional[int] = None,
     ):
+        """Initialize a Jenkins watcher for the given job URL."""
         self.job_url = job_url.rstrip("/")
         super().__init__(watcher_id=watcher_id, label=label)
         # The last build number we've already notified about; None means
@@ -69,10 +81,23 @@ class JenkinsWatcher(Watcher):
         self._has_checked = last_build_number is not None
 
     def default_label(self) -> str:
-        # Use the trailing path segment of the job URL, e.g. ".../job/my-job" -> "my-job"
+        """
+        Derive a label from the job URL's trailing path segment.
+
+        e.g. ".../job/my-job" -> "my-job".
+
+        Returns:
+            The derived label.
+        """
         return self.job_url.rstrip("/").split("/")[-1] or self.job_url
 
     def check(self) -> CheckResult:
+        """
+        Poll the Jenkins job and report its status/newly-actionable state.
+
+        Returns:
+            The result of polling the Jenkins job.
+        """
         try:
             data = _fetch_job_json(self.job_url)
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -102,6 +127,12 @@ class JenkinsWatcher(Watcher):
         return CheckResult(status=status, detail=detail, newly_actionable=newly_actionable)
 
     def to_config(self) -> Dict[str, Any]:
+        """
+        Serialize this watcher's URL, id, label, and last build number.
+
+        Returns:
+            A dict suitable for JSON config storage.
+        """
         return {
             "watcher_type": self.watcher_type,
             "id": self.id,
@@ -112,6 +143,12 @@ class JenkinsWatcher(Watcher):
 
     @classmethod
     def from_config(cls, data: Dict[str, Any]) -> "JenkinsWatcher":
+        """
+        Reconstruct a JenkinsWatcher from a dict produced by to_config().
+
+        Returns:
+            A new JenkinsWatcher instance.
+        """
         return cls(
             job_url=data["job_url"],
             watcher_id=data.get("id"),

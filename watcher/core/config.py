@@ -1,4 +1,5 @@
-"""Local JSON config persistence for Watcher.
+"""
+Local JSON config persistence for Watcher.
 
 Config lives at ``~/.watcher/config.json`` by default and stores the list of
 watchers (serialized via ``Watcher.to_config()``) plus app-level settings
@@ -26,7 +27,12 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
-    """Load config from disk, returning defaults if the file doesn't exist."""
+    """
+    Load config from disk, returning defaults if the file doesn't exist.
+
+    Returns:
+        The loaded (or default) config dict.
+    """
     if not path.exists():
         return dict(_DEFAULT_CONFIG)
     try:
@@ -51,9 +57,13 @@ def save_config(config: Dict[str, Any], path: Path = DEFAULT_CONFIG_PATH) -> Non
 
 
 def watchers_to_config_list(watchers: List) -> List[Dict[str, Any]]:
-    """Serialize a list of Watcher instances for storage.
+    """
+    Serialize a list of Watcher instances for storage.
 
     Each Watcher's ``to_config()`` is expected to already include
     ``watcher_type``, ``id``, and ``label`` alongside its own fields.
+
+    Returns:
+        A list of config dicts, one per watcher.
     """
     return [w.to_config() for w in watchers]

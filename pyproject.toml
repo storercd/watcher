@@ -1,0 +1,43 @@
+[tool.ruff]
+line-length = 120
+
+# Set output format to concise (one line per error)
+output-format = "concise"
+
+[tool.ruff.lint]
+preview = true # 20251107: whitespace errors are still in preview at this time
+
+# Select rules similar to flake8's default set, plus pylint warnings for global usage
+select = [
+    "E",       # pycodestyle errors
+    "W",       # pycodestyle warnings
+    "F",       # pyflakes
+    "PLW0602", # global variable not assigned
+    "PLW0603", # global statement usage
+    "I",       # isort
+    "PLC0415", # import outside top-level
+    "C90",     # McCabe complexity
+    "DOC",     # pydoclint
+    "D",       # pydocstyle
+    "D213",    # Multi-line docstring summary should start at the second line
+]
+ignore = [
+    "D212", # Multi-line docstring summary should start at the first line
+    "D203", # 1 blank line required before class docstring
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google" # Enforce Google-style docstrings
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+# Allow imports inside functions in test files (required for proper mocking setup)
+"**/tests/test_*.py" = ["PLC0415"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["watcher"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,4 +1,5 @@
-"""Abstract notifier interface.
+"""
+Abstract notifier interface.
 
 New notifier types (Slack, SMS, etc.) should subclass :class:`Notifier` and
 implement :meth:`notify`.
@@ -16,6 +17,10 @@ class Notifier(ABC):
 
     @abstractmethod
     def notify(self, title: str, message: str) -> None:
-        """Send a notification. Implementations should not raise on failure;
-        log/print instead so one broken channel doesn't break the others."""
+        """
+        Send a notification.
+
+        Implementations should not raise on failure; log/print instead so one
+        broken channel doesn't break the others.
+        """
         raise NotImplementedError

@@ -2,5 +2,6 @@
 # (tkinter, urllib, json, threading, subprocess) so this file is
 # intentionally empty for production use.
 
-# Dev/test dependency:
+# Dev/test dependencies:
 pytest>=7.0
+ruff>=0.16

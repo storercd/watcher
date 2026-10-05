@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Entrypoint for the Watcher desktop app.
+"""
+Entrypoint for the Watcher desktop app.
 
 Run with: python main.py
 """

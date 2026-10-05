@@ -1,4 +1,5 @@
-"""Core status types and the abstract Watcher plugin interface.
+"""
+Core status types and the abstract Watcher plugin interface.
 
 Any new watcher type (Jenkins, AWS Step Functions, filesystem, etc.) should
 subclass :class:`Watcher` and implement :meth:`Watcher.check`. The GUI and
@@ -43,7 +44,8 @@ class CheckResult:
 
 
 class Watcher(ABC):
-    """Abstract base class for all watcher plugins.
+    """
+    Abstract base class for all watcher plugins.
 
     Subclasses must implement :meth:`check`, :meth:`to_config`, and expose a
     class-level ``watcher_type`` string used to identify the plugin in the
@@ -53,6 +55,7 @@ class Watcher(ABC):
     watcher_type: str = "base"
 
     def __init__(self, watcher_id: Optional[str] = None, label: str = ""):
+        """Initialize a watcher with an id (generated if omitted) and a label."""
         self.id = watcher_id or str(uuid.uuid4())
         self.label = label or self.default_label()
         self.last_status: Status = Status.UNKNOWN
@@ -60,16 +63,25 @@ class Watcher(ABC):
         self.last_detail: str = ""
 
     def default_label(self) -> str:
-        """Fallback label if the user didn't provide one."""
+        """
+        Fallback label if the user didn't provide one.
+
+        Returns:
+            The default label to use for this watcher.
+        """
         return self.watcher_type
 
     @abstractmethod
     def check(self) -> CheckResult:
-        """Poll the watched target and return a :class:`CheckResult`.
+        """
+        Poll the watched target and return a :class:`CheckResult`.
 
         Implementations should update ``self.last_status``/``self.last_checked``
         themselves (the scheduler does not do this for you) so repeated calls
         can compare against prior state to compute ``newly_actionable``.
+
+        Returns:
+            The result of polling the watched target.
         """
         raise NotImplementedError
 
