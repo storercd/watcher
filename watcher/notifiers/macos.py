@@ -1,4 +1,5 @@
-"""macOS native notification via ``osascript``.
+"""
+macOS native notification via ``osascript``.
 
 Uses ``display notification`` so no extra dependency (pync, terminal-notifier)
 is required beyond what ships with macOS.
@@ -22,6 +23,7 @@ class MacOSNotifier(Notifier):
     name = "macos"
 
     def notify(self, title: str, message: str) -> None:
+        """Display a native macOS banner notification via osascript."""
         if shutil.which("osascript") is None:
             print(f"[macos-notifier] osascript not found; {title}: {message}")
             return

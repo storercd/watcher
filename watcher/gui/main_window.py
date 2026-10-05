@@ -50,11 +50,15 @@ def _make_label_button(
     hover_bg: Optional[str] = None,
     font=("Helvetica", 12),
 ) -> tk.Label:
-    """A Label styled/clicked like a button.
+    """
+    A Label styled/clicked like a button.
 
     Plain tk.Button on macOS ignores custom bg/fg once the window is active
     (native Aqua rendering takes over and the button flashes white), so these
     icon buttons are built from Labels with click/hover bindings instead.
+
+    Returns:
+        The configured Label widget acting as a button.
     """
     btn = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, cursor="pointinghand", padx=4)
 
@@ -77,6 +81,7 @@ class MainWindow:
     """Top-level window showing all watchers and controls to add/remove them."""
 
     def __init__(self, root: tk.Tk):
+        """Build the window, load saved config/watchers, and start polling."""
         self.root = root
         self.config = load_config()
         self.watchers: Dict[str, Watcher] = {}
@@ -318,6 +323,7 @@ class MainWindow:
 
 
 def run() -> None:
+    """Create and run the Watcher main window's Tk event loop."""
     root = tk.Tk()
     MainWindow(root)
     root.mainloop()

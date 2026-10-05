@@ -1,4 +1,5 @@
-"""Background polling scheduler.
+"""
+Background polling scheduler.
 
 Runs each watcher's ``check()`` on its own timer thread and invokes a
 callback on the main/GUI thread via a thread-safe queue so Tkinter (which is
@@ -11,13 +12,14 @@ import queue
 import threading
 from typing import Dict, List
 
-from watcher.core.base import CheckResult, Watcher
+from watcher.core.base import CheckResult, Status, Watcher
 
 
 class Scheduler:
     """Polls a list of watchers on a background thread and queues results."""
 
     def __init__(self, poll_interval: int = 15):
+        """Initialize the scheduler with a poll interval, in seconds, between rounds."""
         self.poll_interval = poll_interval
         self._watchers: Dict[str, Watcher] = {}
         self._stop_event = threading.Event()
@@ -25,15 +27,19 @@ class Scheduler:
         self.results: "queue.Queue[tuple[str, CheckResult]]" = queue.Queue()
 
     def set_watchers(self, watchers: List[Watcher]) -> None:
+        """Replace the full set of watchers being polled."""
         self._watchers = {w.id: w for w in watchers}
 
     def add_watcher(self, watcher: Watcher) -> None:
+        """Add a single watcher to the polled set."""
         self._watchers[watcher.id] = watcher
 
     def remove_watcher(self, watcher_id: str) -> None:
+        """Remove a watcher from the polled set by id, if present."""
         self._watchers.pop(watcher_id, None)
 
     def start(self) -> None:
+        """Start the background polling thread if it isn't already running."""
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
@@ -41,6 +47,7 @@ class Scheduler:
         self._thread.start()
 
     def stop(self) -> None:
+        """Signal the background polling thread to stop."""
         self._stop_event.set()
 
     def poll_once_async(self) -> None:
@@ -57,7 +64,5 @@ class Scheduler:
             try:
                 result = watcher.check()
             except Exception as exc:  # noqa: BLE001 - surface any plugin error
-                from watcher.core.base import CheckResult, Status
-
                 result = CheckResult(status=Status.ERROR, detail=str(exc))
             self.results.put((watcher_id, result))
