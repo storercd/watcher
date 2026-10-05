@@ -241,7 +241,7 @@ class MainWindow:
         """
         grip = tk.Label(
             self.root, text="⋰", bg="#2b2b2b", fg="#888888", font=("Helvetica", 14, "bold"),
-            cursor="bottom_right_corner" if self.root.tk.call("tk", "windowingsystem") != "aqua" else "resizebr",
+            cursor="bottom_right_corner",
         )
         grip.place(relx=1.0, rely=1.0, anchor="se", width=16, height=16)
 
