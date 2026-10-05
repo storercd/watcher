@@ -81,6 +81,17 @@ class Watcher(ABC):
         """
         self.unacknowledged = False
 
+    @property
+    def display_url(self) -> Optional[str]:
+        """
+        The URL this watcher points at, for opening in a browser.
+
+        Opened via a double-click in the GUI. Subclasses should override
+        this with their watched URL; returns None if there is nothing
+        sensible to open.
+        """
+        return None
+
     def default_label(self) -> str:
         """
         Fallback label if the user didn't provide one.

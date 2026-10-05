@@ -165,6 +165,11 @@ class GitHubPRWatcher(Watcher):
         """
         return _default_label_from_url(self.pr_url)
 
+    @property
+    def display_url(self) -> Optional[str]:
+        """The GitHub PR URL, for opening in a browser."""
+        return self.pr_url
+
     @classmethod
     def matches_url(cls, url: str) -> bool:
         """

@@ -135,6 +135,11 @@ class JenkinsWatcher(Watcher):
         """
         return self.job_url.rstrip("/").split("/")[-1] or self.job_url
 
+    @property
+    def display_url(self) -> Optional[str]:
+        """The Jenkins job URL, for opening in a browser."""
+        return self.job_url
+
     @classmethod
     def matches_url(cls, url: str) -> bool:
         """

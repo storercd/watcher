@@ -6,6 +6,7 @@ import logging
 import queue
 import time
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox, ttk
 from typing import Dict, Optional
 
@@ -425,8 +426,11 @@ class MainWindow:
 
         # Clicking anywhere on the row (besides the remove/notes buttons)
         # acknowledges a completed/failed build and clears its highlight.
+        # Double-clicking instead opens the watched item's URL in the
+        # browser, so the user can jump straight to the Jenkins job/PR/run.
         for widget in (row, info_frame, label, detail):
             widget.bind("<Button-1>", lambda _event, wid=watcher.id: self._on_acknowledge(wid))
+            widget.bind("<Double-Button-1>", lambda _event, wid=watcher.id: self._on_open_url(wid))
 
     def _remove_row(self, watcher_id: str) -> None:
         widgets = self.row_widgets.pop(watcher_id, None)
@@ -528,6 +532,13 @@ class MainWindow:
             CheckResult(status=watcher.last_status, detail=watcher.last_detail, unacknowledged=False),
         )
         self._save()
+
+    def _on_open_url(self, watcher_id: str) -> None:
+        """Open the watched item's URL in the default browser (double-click)."""
+        watcher = self.watchers.get(watcher_id)
+        if watcher is None or not watcher.display_url:
+            return
+        webbrowser.open(watcher.display_url)
 
     def _on_mode_change(self, _event=None) -> None:
         self.router.set_mode(self.mode_var.get())
