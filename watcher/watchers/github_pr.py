@@ -165,6 +165,16 @@ class GitHubPRWatcher(Watcher):
         """
         return _default_label_from_url(self.pr_url)
 
+    @classmethod
+    def matches_url(cls, url: str) -> bool:
+        """
+        Whether a pasted URL looks like a GitHub pull request URL.
+
+        Returns:
+            True if the URL matches ``github.com/<owner>/<repo>/pull/<number>``.
+        """
+        return bool(_PR_URL_RE.search(url))
+
     def check(self) -> CheckResult:
         """
         Poll the PR's status checks and report status/newly-actionable state.

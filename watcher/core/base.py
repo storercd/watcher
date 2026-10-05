@@ -90,6 +90,21 @@ class Watcher(ABC):
         """
         return self.watcher_type
 
+    @classmethod
+    def matches_url(cls, url: str) -> bool:
+        """
+        Whether a pasted URL looks like something this watcher type can watch.
+
+        Used by the single "Add Watcher" dialog to auto-detect the watcher
+        type from a pasted URL instead of asking the user to pick a type up
+        front. Subclasses should override this with a type-specific URL
+        pattern check.
+
+        Returns:
+            True if this watcher type recognizes the URL format.
+        """
+        return False
+
     @abstractmethod
     def check(self) -> CheckResult:
         """

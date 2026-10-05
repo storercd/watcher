@@ -161,6 +161,17 @@ class GitHubActionsRunWatcher(Watcher):
         """
         return _default_label_from_url(self.run_url)
 
+    @classmethod
+    def matches_url(cls, url: str) -> bool:
+        """
+        Whether a pasted URL looks like a GitHub Actions run URL.
+
+        Returns:
+            True if the URL matches
+            ``github.com/<owner>/<repo>/actions/runs/<run_id>``.
+        """
+        return bool(_RUN_URL_RE.search(url))
+
     def check(self) -> CheckResult:
         """
         Poll the workflow run and report its status/newly-actionable state.
