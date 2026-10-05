@@ -1,4 +1,4 @@
-"""Modal dialog for editing app-level settings (currently: ntfy away notifications)."""
+"""Modal dialog for editing app-level settings (Away notifications, re-notify on restart)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from typing import Optional, Tuple
 
 
 class SettingsDialog(simpledialog.Dialog):
-    """Modal dialog that edits the ntfy server/topic used for Away notifications."""
+    """Modal dialog that edits the ntfy server/topic and other app-level settings."""
 
-    def __init__(self, parent, ntfy_server: str, ntfy_topic: str):
-        """Initialize dialog state, pre-filling the current ntfy settings."""
+    def __init__(self, parent, ntfy_server: str, ntfy_topic: str, renotify_on_restart: bool):
+        """Initialize dialog state, pre-filling the current settings."""
         self.server_var = tk.StringVar(value=ntfy_server)
         self.topic_var = tk.StringVar(value=ntfy_topic)
-        self.result: Optional[Tuple[str, str]] = None
+        self.renotify_var = tk.BooleanVar(value=renotify_on_restart)
+        self.result: Optional[Tuple[str, str, bool]] = None
         super().__init__(parent, title="Settings")
 
     def body(self, master):
@@ -47,6 +48,28 @@ class SettingsDialog(simpledialog.Dialog):
             justify=tk.LEFT,
         ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=(8, 0))
 
+        tk.Label(master, text="Notifications", font=(None, 10, "bold")).grid(
+            row=4, column=0, columnspan=2, sticky="w", padx=4, pady=(16, 8)
+        )
+
+        tk.Checkbutton(
+            master,
+            text="Re-notify unacknowledged on restart",
+            variable=self.renotify_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+
+        tk.Label(
+            master,
+            text=(
+                "When enabled, any result you already acknowledged in a\n"
+                "prior session is treated as unacknowledged again on the\n"
+                "next startup - re-highlighting its row and re-firing\n"
+                "notifications - instead of staying silently acknowledged."
+            ),
+            fg="gray",
+            justify=tk.LEFT,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 4))
+
         return topic_entry  # initial focus
 
     def validate(self) -> bool:
@@ -61,5 +84,9 @@ class SettingsDialog(simpledialog.Dialog):
         return True
 
     def apply(self) -> None:
-        """Store the entered server/topic as the dialog's result on accept."""
-        self.result = (self.server_var.get().strip(), self.topic_var.get().strip())
+        """Store the entered settings as the dialog's result on accept."""
+        self.result = (
+            self.server_var.get().strip(),
+            self.topic_var.get().strip(),
+            self.renotify_var.get(),
+        )

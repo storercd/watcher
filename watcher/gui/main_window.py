@@ -63,6 +63,13 @@ DEFAULT_ROW_BG = "#2b2b2b"
 
 QUEUE_POLL_MS = 500
 
+# How often to re-assert attention (e.g. re-request a Dock bounce) for a
+# still-unacknowledged result. Separate from QUEUE_POLL_MS since a bounce
+# request can be silently ignored by macOS if the app was frontmost when it
+# first fired; this catches the user switching away afterward without
+# acknowledging.
+NUDGE_INTERVAL_MS = 5000
+
 # Base (scale=1.0) font sizes, bumped up from the original cramped defaults
 # for readability. Actual widget fonts are computed by scaling these - see
 # MainWindow._scaled_font() - so the whole UI grows/shrinks together both
@@ -160,8 +167,14 @@ class MainWindow:
             ntfy_server=self.config.get("ntfy_server", DEFAULT_NTFY_SERVER),
             ntfy_topic=self.config.get("ntfy_topic", ""),
         )
+        self.renotify_on_restart_var = tk.BooleanVar(
+            value=bool(self.config.get("renotify_on_restart", True))
+        )
 
         self._load_watchers_from_config()
+        if self.renotify_on_restart_var.get():
+            for watcher in self.watchers.values():
+                watcher.forget_acknowledgment()
 
         self._build_ui()
         self._make_draggable(self.root)
@@ -173,6 +186,7 @@ class MainWindow:
         self.scheduler.poll_once_async()
 
         self.root.after(QUEUE_POLL_MS, self._drain_results)
+        self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
 
     # ------------------------------------------------------------------
     # Setup
@@ -485,12 +499,16 @@ class MainWindow:
     # ------------------------------------------------------------------
     def _on_open_settings(self) -> None:
         dialog = SettingsDialog(
-            self.root, ntfy_server=self.router.away_notifier.server, ntfy_topic=self.router.away_notifier.topic
+            self.root,
+            ntfy_server=self.router.away_notifier.server,
+            ntfy_topic=self.router.away_notifier.topic,
+            renotify_on_restart=self.renotify_on_restart_var.get(),
         )
         if not dialog.result:
             return
-        server, topic = dialog.result
+        server, topic, renotify_on_restart = dialog.result
         self.router.configure_away(server=server, topic=topic)
+        self.renotify_on_restart_var.set(renotify_on_restart)
         self._save()
 
     def _on_add_watcher(self) -> None:
@@ -614,6 +632,16 @@ class MainWindow:
                 logger.warning("_drain_results() itself took %.3fs", drain_elapsed)
             self.root.after(QUEUE_POLL_MS, self._drain_results)
 
+    def _nudge_tick(self) -> None:
+        """Periodically re-assert attention if any watcher is still unacknowledged."""
+        has_unacknowledged = any(watcher.unacknowledged for watcher in self.watchers.values())
+        try:
+            self.router.nudge(has_unacknowledged)
+        except Exception:  # noqa: BLE001 - a nudge failure must never stop the GUI's tick loop
+            logger.exception("router.nudge() failed")
+        finally:
+            self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
+
     def _save(self) -> None:
         self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
         self.config["mode"] = self.router.mode
@@ -621,6 +649,7 @@ class MainWindow:
         self.config["ntfy_topic"] = self.router.away_notifier.topic
         self.config["poll_interval"] = self.scheduler.poll_interval
         self.config["font_scale"] = self.manual_font_scale
+        self.config["renotify_on_restart"] = self.renotify_on_restart_var.get()
         save_config(self.config)
 
 

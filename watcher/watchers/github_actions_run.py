@@ -222,6 +222,10 @@ class GitHubActionsRunWatcher(Watcher):
         self.acknowledged_attempt = self.last_attempt
         self.unacknowledged = False
 
+    def forget_acknowledgment(self) -> None:
+        """Clear the acknowledged attempt so the last completion re-notifies."""
+        self.acknowledged_attempt = None
+
     def to_config(self) -> Dict[str, Any]:
         """
         Serialize this watcher's URL, id, label, and attempt-tracking state.

@@ -197,6 +197,10 @@ class JenkinsWatcher(Watcher):
         self.acknowledged_build_number = self.last_build_number
         self.unacknowledged = False
 
+    def forget_acknowledgment(self) -> None:
+        """Clear the acknowledged build number so the last completion re-notifies."""
+        self.acknowledged_build_number = None
+
     def to_config(self) -> Dict[str, Any]:
         """
         Serialize this watcher's URL, id, label, and build-tracking state.

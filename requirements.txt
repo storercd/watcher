@@ -1,6 +1,11 @@
-# Runtime dependencies: none — Watcher uses only the Python stdlib
-# (tkinter, urllib, json, threading, subprocess) so this file is
-# intentionally empty for production use.
+# Runtime dependencies: Watcher otherwise uses only the Python stdlib
+# (tkinter, urllib, json, threading, subprocess).
+#
+# pyobjc-framework-Cocoa is optional and macOS-only: it powers the bouncing
+# Dock icon in watcher/notifiers/macos.py. It's imported lazily and the
+# notifier degrades gracefully (banner + sound only, no bounce) if it's
+# missing, so it's not a hard requirement.
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
 
 # Dev/test dependencies:
 pytest>=7.0

@@ -250,6 +250,30 @@ class TestJenkinsWatcherCheck:
         assert watcher.unacknowledged is False
         assert watcher.acknowledged_build_number == 10
 
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_forget_acknowledgment_makes_restart_notify_again(self, mock_fetch):
+        """
+        forget_acknowledgment() makes an already-acknowledged completion notify again.
+
+        Simulates an app restart (reconstructing via to_config()/from_config(),
+        since _checked_since_start is in-memory only) with the "re-notify on
+        restart" setting applying forget_acknowledgment() to the restored watcher.
+        """
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+        watcher.acknowledge()
+        assert watcher.acknowledged_build_number == 10
+
+        restarted = JenkinsWatcher.from_config(watcher.to_config())
+        restarted.forget_acknowledgment()
+        assert restarted.acknowledged_build_number is None
+
+        result = restarted.check()
+
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
+
     def test_default_label_from_url(self):
         """The default label is derived from the job URL's trailing path segment."""
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job")

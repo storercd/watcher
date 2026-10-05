@@ -92,6 +92,20 @@ class Watcher(ABC):
         """
         return None
 
+    def forget_acknowledgment(self) -> None:
+        """
+        Discard any persisted "this result was acknowledged" marker.
+
+        Used when the "re-notify on restart" setting is enabled, so a result
+        the user already acknowledged in a prior session is treated as
+        unacknowledged again - re-highlighting the row and re-firing
+        notifications - instead of staying silently acknowledged forever.
+
+        Default is a no-op; subclasses that track an explicit acknowledged
+        marker (build number, attempt, head SHA) override this to clear it.
+        """
+        return None
+
     def default_label(self) -> str:
         """
         Fallback label if the user didn't provide one.

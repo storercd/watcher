@@ -101,15 +101,22 @@ class TestGitHubPRWatcherCheck:
         return GitHubPRWatcher(pr_url=pr_url)
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
-    def test_first_check_never_notifies(self, mock_run):
-        """The very first check establishes a baseline without notifying."""
+    def test_first_check_notifies_for_already_finished_pr(self, mock_run):
+        """
+        The very first check still notifies if the PR was already resolved.
+
+        A PR can already have finished checks by the time it's added (e.g. it
+        completed moments before the user pasted the URL), so the first poll
+        must notify instead of silently requiring a new commit first.
+        """
         mock_run.return_value = _pr_data("sha1", [_check_run("SUCCESS")])
         watcher = self._make_watcher()
 
         result = watcher.check()
 
         assert result.status == Status.SUCCESS
-        assert result.newly_actionable is False
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
         assert watcher.last_head_sha == "sha1"
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
@@ -122,6 +129,30 @@ class TestGitHubPRWatcherCheck:
         result = watcher.check()  # second poll, same commit
 
         assert result.newly_actionable is False
+
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_forget_acknowledgment_makes_restart_notify_again(self, mock_run):
+        """
+        forget_acknowledgment() makes an already-acknowledged completion notify again.
+
+        Simulates an app restart (reconstructing via to_config()/from_config(),
+        since _checked_since_start is in-memory only) with the "re-notify on
+        restart" setting applying forget_acknowledgment() to the restored watcher.
+        """
+        mock_run.return_value = _pr_data("sha1", [_check_run("SUCCESS")])
+        watcher = self._make_watcher()
+        watcher.check()
+        watcher.acknowledge()
+        assert watcher.acknowledged_head_sha == "sha1"
+
+        restarted = GitHubPRWatcher.from_config(watcher.to_config())
+        restarted.forget_acknowledgment()
+        assert restarted.acknowledged_head_sha is None
+
+        result = restarted.check()
+
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_new_completed_commit_notifies(self, mock_run):

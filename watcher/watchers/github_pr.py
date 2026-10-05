@@ -146,15 +146,24 @@ class GitHubPRWatcher(Watcher):
         watcher_id: Optional[str] = None,
         label: str = "",
         last_head_sha: Optional[str] = None,
+        acknowledged_head_sha: Optional[str] = None,
         notes: str = "",
     ):
         """Initialize a GitHub PR watcher for the given PR URL."""
         self.pr_url = pr_url.rstrip("/")
         super().__init__(watcher_id=watcher_id, label=label, notes=notes)
-        # The commit SHA we've already notified about; None means "we
-        # haven't checked yet" so the very first check never notifies.
+        # The head SHA we've last resolved a finished check-run state for.
         self.last_head_sha = last_head_sha
-        self._has_checked = last_head_sha is not None
+        # The head SHA the user has acknowledged (e.g. by clicking the row).
+        # A resolved head SHA that doesn't match this is "unacknowledged" and
+        # keeps notifying/highlighting across app restarts until acknowledged.
+        self.acknowledged_head_sha = acknowledged_head_sha
+        # In-memory only: whether this watcher has completed at least one
+        # check() since the app started, used to re-alert once per restart -
+        # and to notify on the very first check for a PR that was already
+        # finished when it was added - for a completion that's still
+        # unacknowledged.
+        self._checked_since_start = False
 
     def default_label(self) -> str:
         """
@@ -197,28 +206,43 @@ class GitHubPRWatcher(Watcher):
         head_sha = data.get("headRefOid")
         status, detail = _status_from_checks(data.get("statusCheckRollup") or [])
 
-        newly_actionable = False
-        if (
-            status.is_actionable
-            and self._has_checked
-            and head_sha is not None
-            and head_sha != self.last_head_sha
-        ):
-            newly_actionable = True
+        unacknowledged = (
+            status.is_actionable and head_sha is not None and head_sha != self.acknowledged_head_sha
+        )
+        # Notify when checks newly resolve on a new commit (head_sha
+        # advanced), or - on the first poll since the app started - when a
+        # completion from before the watcher was added is still
+        # unacknowledged, so adding an already-finished PR still notifies
+        # instead of silently requiring a new commit first.
+        newly_actionable = unacknowledged and (
+            head_sha != self.last_head_sha or not self._checked_since_start
+        )
+        self._checked_since_start = True
 
         if head_sha is not None and status != Status.BUILDING:
             # Only "commit" the head SHA once checks have finished, so we
             # don't miss a transition if we happen to poll mid-run.
             self.last_head_sha = head_sha
-        self._has_checked = True
 
         self.last_status = status
         self.last_detail = detail
-        return CheckResult(status=status, detail=detail, newly_actionable=newly_actionable)
+        self.unacknowledged = unacknowledged
+        return CheckResult(
+            status=status, detail=detail, newly_actionable=newly_actionable, unacknowledged=unacknowledged
+        )
+
+    def acknowledge(self) -> None:
+        """Mark the current resolved head SHA as seen, clearing the unacknowledged state."""
+        self.acknowledged_head_sha = self.last_head_sha
+        self.unacknowledged = False
+
+    def forget_acknowledgment(self) -> None:
+        """Clear the acknowledged head SHA so the last resolved commit re-notifies."""
+        self.acknowledged_head_sha = None
 
     def to_config(self) -> Dict[str, Any]:
         """
-        Serialize this watcher's URL, id, label, and last head SHA.
+        Serialize this watcher's URL, id, label, and head-SHA-tracking state.
 
         Returns:
             A dict suitable for JSON config storage.
@@ -229,6 +253,7 @@ class GitHubPRWatcher(Watcher):
             "label": self.label,
             "pr_url": self.pr_url,
             "last_head_sha": self.last_head_sha,
+            "acknowledged_head_sha": self.acknowledged_head_sha,
             "notes": self.notes,
         }
 
@@ -245,5 +270,6 @@ class GitHubPRWatcher(Watcher):
             watcher_id=data.get("id"),
             label=data.get("label", ""),
             last_head_sha=data.get("last_head_sha"),
+            acknowledged_head_sha=data.get("acknowledged_head_sha"),
             notes=data.get("notes", ""),
         )
