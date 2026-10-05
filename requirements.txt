@@ -1,0 +1,6 @@
+# Runtime dependencies: none — Watcher uses only the Python stdlib
+# (tkinter, urllib, json, threading, subprocess) so this file is
+# intentionally empty for production use.
+
+# Dev/test dependency:
+pytest>=7.0

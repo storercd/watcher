@@ -1,0 +1,30 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Packaging
+*.egg-info/
+dist/
+build/
+
+# Local user config (watcher also stores config at ~/.watcher/config.json,
+# outside the repo, but ignore a local override if someone keeps one here)
+config.local.json
+.watcher/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
