@@ -60,6 +60,16 @@ DEFAULT_ROW_BG = "#2b2b2b"
 
 QUEUE_POLL_MS = 500
 
+# Base font sizes, bumped up from the original cramped defaults for
+# readability. These are used throughout the window and its rows.
+FONT_TITLE = ("Helvetica", 13, "bold")
+FONT_BUTTON = ("Helvetica", 14)
+FONT_BUTTON_BOLD = ("Helvetica", 14, "bold")
+FONT_BODY = ("Helvetica", 13)
+FONT_DETAIL = ("Helvetica", 11)
+FONT_DOT = ("Helvetica", 14)
+FONT_ICON = ("Helvetica", 12)
+
 
 def _make_label_button(
     parent: tk.Widget,
@@ -68,7 +78,7 @@ def _make_label_button(
     bg: str,
     fg: str = "white",
     hover_bg: Optional[str] = None,
-    font=("Helvetica", 12),
+    font=FONT_BUTTON,
 ) -> tk.Label:
     """
     A Label styled/clicked like a button.
@@ -137,41 +147,44 @@ class MainWindow:
     def _build_ui(self) -> None:
         self.root.title("Watcher")
         self.root.attributes("-topmost", True)
-        self.root.geometry("340x240")
+        self.root.geometry("420x320")
         self.root.configure(bg="#1e1e1e")
         self.root.overrideredirect(True)  # frameless-ish window
-        self.root.minsize(260, 160)
+        self.root.minsize(300, 200)
 
         # Title bar (also the drag handle) with close button and mode selector.
-        titlebar = tk.Frame(self.root, bg="#2b2b2b", height=28)
+        titlebar = tk.Frame(self.root, bg="#2b2b2b", height=34)
         titlebar.pack(side=tk.TOP, fill=tk.X)
         titlebar.pack_propagate(False)
         self._drag_handles = [titlebar]
 
         title_label = tk.Label(
-            titlebar, text="👀 Watcher", bg="#2b2b2b", fg="white", font=("Helvetica", 11, "bold")
+            titlebar, text="👀 Watcher", bg="#2b2b2b", fg="white", font=FONT_TITLE
         )
-        title_label.pack(side=tk.LEFT, padx=6)
+        title_label.pack(side=tk.LEFT, padx=8)
         self._drag_handles.append(title_label)
 
         close_btn = _make_label_button(
-            titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b", font=("Helvetica", 12)
+            titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b", font=FONT_BUTTON
         )
         close_btn.pack(side=tk.RIGHT, padx=4)
 
         add_btn = _make_label_button(
             titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57",
-            font=("Helvetica", 12, "bold"),
+            font=FONT_BUTTON_BOLD,
         )
         add_btn.pack(side=tk.RIGHT, padx=2)
 
         # Mode selector.
         mode_frame = tk.Frame(self.root, bg="#1e1e1e")
-        mode_frame.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(4, 0))
-        tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white").pack(side=tk.LEFT)
+        mode_frame.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(6, 0))
+        tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white", font=FONT_BODY).pack(side=tk.LEFT)
         self.mode_var = tk.StringVar(value=self.router.mode)
+        style = ttk.Style()
+        style.configure("Watcher.TCombobox", font=FONT_BODY)
         mode_menu = ttk.Combobox(
-            mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly", width=10
+            mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
+            width=10, font=FONT_BODY, style="Watcher.TCombobox",
         )
         mode_menu.pack(side=tk.LEFT, padx=4)
         mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
@@ -184,10 +197,16 @@ class MainWindow:
         scrollbar = tk.Scrollbar(list_container, orient="vertical", command=self.canvas.yview)
         self.list_frame = tk.Frame(self.canvas, bg="#1e1e1e")
 
+        self._list_frame_window = self.canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
         self.list_frame.bind(
             "<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
-        self.canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
+        # Keep the inner frame as wide as the canvas so row content reflows
+        # (instead of clipping/truncating) as the window is resized.
+        self.canvas.bind(
+            "<Configure>",
+            lambda e: self.canvas.itemconfigure(self._list_frame_window, width=e.width),
+        )
         self.canvas.configure(yscrollcommand=scrollbar.set)
 
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -202,12 +221,46 @@ class MainWindow:
                 text="No watchers yet. Click + to add one.",
                 bg="#1e1e1e",
                 fg="gray",
-                wraplength=280,
+                font=FONT_BODY,
+                wraplength=360,
                 justify=tk.LEFT,
             )
             self.empty_label.pack(anchor="w", pady=10)
         else:
             self.empty_label = None
+
+        self._add_resize_grip()
+
+    def _add_resize_grip(self) -> None:
+        """
+        Add a bottom-right drag handle so this frameless window can be resized.
+
+        `overrideredirect(True)` removes native OS window chrome (including
+        the native resize border/corner), so without this the window would
+        be stuck at its initial size.
+        """
+        grip = tk.Label(
+            self.root, text="⋰", bg="#2b2b2b", fg="#888888", font=("Helvetica", 14, "bold"),
+            cursor="bottom_right_corner" if self.root.tk.call("tk", "windowingsystem") != "aqua" else "resizebr",
+        )
+        grip.place(relx=1.0, rely=1.0, anchor="se", width=16, height=16)
+
+        def start_resize(event):
+            self._resize_origin = (
+                event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height(),
+            )
+
+        def do_resize(event):
+            start_x, start_y, start_w, start_h = self._resize_origin
+            new_w = max(self.root.winfo_reqwidth(), start_w + (event.x_root - start_x))
+            new_h = max(self.root.winfo_reqheight(), start_h + (event.y_root - start_y))
+            min_w, min_h = 300, 200
+            new_w = max(new_w, min_w)
+            new_h = max(new_h, min_h)
+            self.root.geometry(f"{new_w}x{new_h}")
+
+        grip.bind("<ButtonPress-1>", start_resize)
+        grip.bind("<B1-Motion>", do_resize)
 
     def _make_draggable(self, root: tk.Tk) -> None:
         self._drag_offset = (0, 0)
@@ -235,23 +288,23 @@ class MainWindow:
         row = tk.Frame(self.list_frame, bg="#2b2b2b", pady=4, padx=4)
         row.pack(side=tk.TOP, fill=tk.X, pady=2)
 
-        dot = tk.Label(row, text="●", fg=STATUS_COLORS[Status.UNKNOWN], bg="#2b2b2b", font=("Helvetica", 12))
+        dot = tk.Label(row, text="●", fg=STATUS_COLORS[Status.UNKNOWN], bg="#2b2b2b", font=FONT_DOT)
         dot.pack(side=tk.LEFT)
 
         info_frame = tk.Frame(row, bg="#2b2b2b")
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
 
-        label = tk.Label(info_frame, text=watcher.label, bg="#2b2b2b", fg="white", anchor="w")
+        label = tk.Label(info_frame, text=watcher.label, bg="#2b2b2b", fg="white", anchor="w", font=FONT_BODY)
         label.pack(side=tk.TOP, fill=tk.X)
 
         detail = tk.Label(
             info_frame, text="unknown · never checked", bg="#2b2b2b", fg="gray",
-            anchor="w", font=("Helvetica", 9),
+            anchor="w", font=FONT_DETAIL, wraplength=320, justify=tk.LEFT,
         )
         detail.pack(side=tk.TOP, fill=tk.X)
 
         notes_icon = tk.Label(
-            row, text="📝", bg="#2b2b2b", font=("Helvetica", 10), cursor="hand2",
+            row, text="📝", bg="#2b2b2b", font=FONT_ICON, cursor="hand2",
         )
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
