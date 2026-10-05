@@ -106,10 +106,11 @@ class JenkinsWatcher(Watcher):
         label: str = "",
         last_build_number: Optional[int] = None,
         acknowledged_build_number: Optional[int] = None,
+        notes: str = "",
     ):
         """Initialize a Jenkins watcher for the given job URL."""
         self.job_url = _normalize_job_url(job_url)
-        super().__init__(watcher_id=watcher_id, label=label)
+        super().__init__(watcher_id=watcher_id, label=label, notes=notes)
         # The last completed build number we've seen, used to detect a
         # genuinely new completion.
         self.last_build_number = last_build_number
@@ -195,6 +196,7 @@ class JenkinsWatcher(Watcher):
             "job_url": self.job_url,
             "last_build_number": self.last_build_number,
             "acknowledged_build_number": self.acknowledged_build_number,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -211,4 +213,5 @@ class JenkinsWatcher(Watcher):
             label=data.get("label", ""),
             last_build_number=data.get("last_build_number"),
             acknowledged_build_number=data.get("acknowledged_build_number"),
+            notes=data.get("notes", ""),
         )

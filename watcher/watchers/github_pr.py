@@ -146,10 +146,11 @@ class GitHubPRWatcher(Watcher):
         watcher_id: Optional[str] = None,
         label: str = "",
         last_head_sha: Optional[str] = None,
+        notes: str = "",
     ):
         """Initialize a GitHub PR watcher for the given PR URL."""
         self.pr_url = pr_url.rstrip("/")
-        super().__init__(watcher_id=watcher_id, label=label)
+        super().__init__(watcher_id=watcher_id, label=label, notes=notes)
         # The commit SHA we've already notified about; None means "we
         # haven't checked yet" so the very first check never notifies.
         self.last_head_sha = last_head_sha
@@ -213,6 +214,7 @@ class GitHubPRWatcher(Watcher):
             "label": self.label,
             "pr_url": self.pr_url,
             "last_head_sha": self.last_head_sha,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -228,4 +230,5 @@ class GitHubPRWatcher(Watcher):
             watcher_id=data.get("id"),
             label=data.get("label", ""),
             last_head_sha=data.get("last_head_sha"),
+            notes=data.get("notes", ""),
         )

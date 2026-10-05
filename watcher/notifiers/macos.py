@@ -7,10 +7,14 @@ is required beyond what ships with macOS.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
+import time
 
 from watcher.notifiers.base import Notifier
+
+logger = logging.getLogger("watcher.notifiers.macos")
 
 
 def _escape_for_applescript(text: str) -> str:
@@ -32,11 +36,13 @@ class MacOSNotifier(Notifier):
             f'with title "{_escape_for_applescript(title)}"'
         )
         try:
+            start = time.monotonic()
             subprocess.run(
                 ["osascript", "-e", script],
                 check=False,
                 capture_output=True,
                 timeout=5,
             )
+            logger.debug("osascript notification took %.3fs", time.monotonic() - start)
         except (OSError, subprocess.SubprocessError) as exc:
             print(f"[macos-notifier] failed to send notification: {exc}")
