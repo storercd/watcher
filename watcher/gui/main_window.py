@@ -6,7 +6,7 @@ import queue
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Dict
+from typing import Dict, Optional
 
 from watcher.core.base import CheckResult, Status, Watcher
 from watcher.core.config import (
@@ -39,6 +39,38 @@ STATUS_LABELS = {
 }
 
 QUEUE_POLL_MS = 500
+
+
+def _make_label_button(
+    parent: tk.Widget,
+    text: str,
+    command,
+    bg: str,
+    fg: str = "white",
+    hover_bg: Optional[str] = None,
+    font=("Helvetica", 12),
+) -> tk.Label:
+    """A Label styled/clicked like a button.
+
+    Plain tk.Button on macOS ignores custom bg/fg once the window is active
+    (native Aqua rendering takes over and the button flashes white), so these
+    icon buttons are built from Labels with click/hover bindings instead.
+    """
+    btn = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, cursor="pointinghand", padx=4)
+
+    def on_click(_event):
+        command()
+
+    def on_enter(_event):
+        btn.configure(bg=hover_bg or bg)
+
+    def on_leave(_event):
+        btn.configure(bg=bg)
+
+    btn.bind("<Button-1>", on_click)
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
+    return btn
 
 
 class MainWindow:
@@ -96,15 +128,14 @@ class MainWindow:
         title_label.pack(side=tk.LEFT, padx=6)
         self._drag_handles.append(title_label)
 
-        close_btn = tk.Button(
-            titlebar, text="×", command=self._on_close, bg="#2b2b2b", fg="white",
-            bd=0, activebackground="#c0392b", font=("Helvetica", 12),
+        close_btn = _make_label_button(
+            titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b", font=("Helvetica", 12)
         )
         close_btn.pack(side=tk.RIGHT, padx=4)
 
-        add_btn = tk.Button(
-            titlebar, text="+", command=self._on_add_watcher, bg="#2b2b2b", fg="white",
-            bd=0, activebackground="#2e8b57", font=("Helvetica", 12, "bold"),
+        add_btn = _make_label_button(
+            titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57",
+            font=("Helvetica", 12, "bold"),
         )
         add_btn.pack(side=tk.RIGHT, padx=2)
 
@@ -193,9 +224,9 @@ class MainWindow:
         )
         detail.pack(side=tk.TOP, fill=tk.X)
 
-        remove_btn = tk.Button(
-            row, text="−", command=lambda wid=watcher.id: self._on_remove_watcher(wid),
-            bg="#2b2b2b", fg="white", bd=0, activebackground="#c0392b",
+        remove_btn = _make_label_button(
+            row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
+            bg="#2b2b2b", hover_bg="#c0392b",
         )
         remove_btn.pack(side=tk.RIGHT)
 
