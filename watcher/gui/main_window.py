@@ -16,8 +16,13 @@ from watcher.core.config import (
 )
 from watcher.core.registry import get_watcher_class
 from watcher.core.scheduler import Scheduler
-from watcher.gui.add_watcher_dialog import AddJenkinsWatcherDialog
+from watcher.gui.add_watcher_dialog import (
+    AddGitHubPRWatcherDialog,
+    AddJenkinsWatcherDialog,
+    ChooseWatcherTypeDialog,
+)
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
+from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401 - registers plugin
 
 STATUS_COLORS = {
@@ -293,11 +298,22 @@ class MainWindow:
     # Event handlers
     # ------------------------------------------------------------------
     def _on_add_watcher(self) -> None:
-        dialog = AddJenkinsWatcherDialog(self.root)
-        if not dialog.result:
+        type_dialog = ChooseWatcherTypeDialog(self.root)
+        if type_dialog.result == "jenkins":
+            dialog = AddJenkinsWatcherDialog(self.root)
+            if not dialog.result:
+                return
+            job_url, label = dialog.result
+            watcher = JenkinsWatcher(job_url=job_url, label=label)
+        elif type_dialog.result == "github_pr":
+            dialog = AddGitHubPRWatcherDialog(self.root)
+            if not dialog.result:
+                return
+            pr_url, label = dialog.result
+            watcher = GitHubPRWatcher(pr_url=pr_url, label=label)
+        else:
             return
-        job_url, label = dialog.result
-        watcher = JenkinsWatcher(job_url=job_url, label=label)
+
         self.watchers[watcher.id] = watcher
         self._add_row(watcher)
         self.scheduler.add_watcher(watcher)
