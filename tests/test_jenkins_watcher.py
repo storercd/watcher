@@ -60,9 +60,14 @@ class TestStatusFromJobJson:
         status, _detail, _num = _status_from_job_json(_job_json("disabled"))
         assert status == Status.IDLE
 
+    def test_aborted_is_failure(self):
+        """An aborted build is treated as a failure so it's flagged for attention."""
+        status, _detail, _num = _status_from_job_json(_job_json("aborted", 5))
+        assert status == Status.FAILURE
+
     def test_unknown_color(self):
         """An unrecognized job color falls back to unknown status."""
-        status, _detail, _num = _status_from_job_json(_job_json("aborted_anime".replace("_anime", "")))
+        status, _detail, _num = _status_from_job_json(_job_json("mystery-color"))
         assert status == Status.UNKNOWN
 
 
@@ -114,27 +119,61 @@ class TestJenkinsWatcherCheck:
         return JenkinsWatcher(job_url=job_url)
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
-    def test_first_check_never_notifies(self, mock_fetch):
-        """The very first check establishes a baseline without notifying."""
+    def test_first_check_notifies_when_unacknowledged(self, mock_fetch):
+        """
+        The first check notifies if the completed build is unacknowledged.
+
+        This matters when the app restarts: a previously-completed build the
+        user never clicked on should alert again, not go silent forever.
+        """
         mock_fetch.return_value = _job_json("blue", 10)
         watcher = self._make_watcher()
 
         result = watcher.check()
 
         assert result.status == Status.SUCCESS
-        assert result.newly_actionable is False
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
         assert watcher.last_build_number == 10
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
-    def test_same_build_number_does_not_renotify(self, mock_fetch):
+    def test_same_build_number_does_not_renotify_within_a_run(self, mock_fetch):
         """Polling again with the same build number does not re-notify."""
         mock_fetch.return_value = _job_json("blue", 10)
         watcher = self._make_watcher()
-        watcher.check()  # first check establishes baseline
+        watcher.check()  # first check establishes baseline and notifies
 
-        result = watcher.check()  # second poll, same build
+        result = watcher.check()  # second poll, same build, same run
 
         assert result.newly_actionable is False
+        assert result.unacknowledged is True  # still pending acknowledgment
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_restart_renotifies_if_still_unacknowledged(self, mock_fetch):
+        """A simulated app restart re-notifies for a completion never acknowledged."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+
+        restarted = JenkinsWatcher.from_config(watcher.to_config())
+        result = restarted.check()
+
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_restart_does_not_renotify_once_acknowledged(self, mock_fetch):
+        """Acknowledging a completion stops it from re-notifying after a restart."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+        watcher.acknowledge()
+
+        restarted = JenkinsWatcher.from_config(watcher.to_config())
+        result = restarted.check()
+
+        assert result.newly_actionable is False
+        assert result.unacknowledged is False
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
     def test_new_completed_build_notifies(self, mock_fetch):
@@ -187,6 +226,7 @@ class TestJenkinsWatcherCheck:
         """A watcher serialized via to_config() can be restored via from_config()."""
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-job", label="My Job")
         watcher.last_build_number = 42
+        watcher.acknowledged_build_number = 41
 
         config = watcher.to_config()
         restored = JenkinsWatcher.from_config(config)
@@ -194,7 +234,21 @@ class TestJenkinsWatcherCheck:
         assert restored.job_url == watcher.job_url
         assert restored.label == watcher.label
         assert restored.last_build_number == 42
+        assert restored.acknowledged_build_number == 41
         assert restored.id == watcher.id
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_acknowledge_clears_unacknowledged_state(self, mock_fetch):
+        """Calling acknowledge() clears the watcher's unacknowledged flag."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+        assert watcher.unacknowledged is True
+
+        watcher.acknowledge()
+
+        assert watcher.unacknowledged is False
+        assert watcher.acknowledged_build_number == 10
 
     def test_default_label_from_url(self):
         """The default label is derived from the job URL's trailing path segment."""

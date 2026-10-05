@@ -12,8 +12,11 @@ actionable (e.g. a build finishes).
 - Polls each watched item on a background timer (default every 15s) without
   blocking the GUI.
 - Detects state transitions — e.g. a Jenkins job going from *building* to
-  *success*/*failure* — and fires a notification only once per newly
-  completed build, not on every poll.
+  *success*/*failure* — and fires a notification once per newly completed
+  build, not on every poll.
+- When a watched item finishes (success, failure, or aborted), its whole row
+  turns bright green/red and keeps notifying on every app restart until you
+  click the row to acknowledge it — so a finished build can't be missed.
 - Fires a native macOS notification (via `osascript`/`display notification`,
   no extra dependency) when something becomes actionable.
 - Has a "Mode" dropdown (**At Desk** / **Away**) that controls which
@@ -37,6 +40,8 @@ From the window:
 - Click **+** to add a Jenkins watcher — enter the job URL (e.g.
   `https://jenkins.example.com/job/my-job`) and an optional label.
 - Click **−** next to a watcher to remove it.
+- When a row turns green/red, click anywhere on it to acknowledge the
+  finished build and clear the highlight.
 - Drag the title bar to move the window; it stays on top of other windows.
 - Click **×** to close (this also saves your current config).
 
