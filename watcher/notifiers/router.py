@@ -50,3 +50,8 @@ class NotificationRouter:
         """Dispatch a notification to every notifier registered for the current mode."""
         for notifier in self._notifiers.get(self.mode, []):
             notifier.notify(title, message)
+
+    def nudge(self, has_unacknowledged: bool) -> None:
+        """Periodically re-assert attention via every notifier registered for the current mode."""
+        for notifier in self._notifiers.get(self.mode, []):
+            notifier.nudge(has_unacknowledged)

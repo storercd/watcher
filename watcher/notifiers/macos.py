@@ -28,6 +28,29 @@ def _escape_for_applescript(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _is_app_active() -> bool:
+    """
+    Whether this app is currently the frontmost/active application.
+
+    Conservatively returns ``True`` if PyObjC isn't available or the check
+    fails, so callers skip re-bouncing rather than risk bouncing while the
+    user is already looking at the app.
+
+    Returns:
+        Whether the app is currently active/frontmost.
+    """
+    try:
+        from AppKit import NSApp, NSApplication  # noqa: PLC0415 - optional, lazy dep
+    except ImportError:
+        return True
+    try:
+        app = NSApp() or NSApplication.sharedApplication()
+        return bool(app.isActive())
+    except Exception as exc:  # noqa: BLE001 - never let this check break notifications
+        logger.debug("Active-app check failed: %s", exc)
+        return True
+
+
 def _bounce_dock_icon() -> None:
     """
     Request a continuous Dock icon bounce via PyObjC.
@@ -76,3 +99,20 @@ class MacOSNotifier(Notifier):
             logger.debug("osascript notification took %.3fs", time.monotonic() - start)
         except (OSError, subprocess.SubprocessError) as exc:
             print(f"[macos-notifier] failed to send notification: {exc}")
+
+    def nudge(self, has_unacknowledged: bool) -> None:
+        """
+        Re-request the Dock bounce if something is still unacknowledged and we're backgrounded.
+
+        ``requestUserAttention_`` is a no-op while the app is frontmost (e.g.
+        it was active at the moment a watcher finished), so a bounce
+        requested at completion time can be silently swallowed. Polling this
+        on an interval catches the case where the user later switches away
+        without acknowledging: as soon as we're backgrounded, the bounce
+        request finally takes effect.
+        """
+        if not has_unacknowledged:
+            return
+        if _is_app_active():
+            return
+        _bounce_dock_icon()

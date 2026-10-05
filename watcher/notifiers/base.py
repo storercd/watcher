@@ -24,3 +24,15 @@ class Notifier(ABC):
         broken channel doesn't break the others.
         """
         raise NotImplementedError
+
+    def nudge(self, has_unacknowledged: bool) -> None:
+        """
+        Re-assert attention for a still-unacknowledged result, called periodically.
+
+        Unlike :meth:`notify` (fired once, on the moment a result becomes
+        actionable), this is polled on an interval so a channel can re-nag
+        if its first attempt had no effect (e.g. a Dock bounce request that
+        was silently ignored because the app was frontmost at the time).
+        Default is a no-op; most channels don't need this.
+        """
+        return None

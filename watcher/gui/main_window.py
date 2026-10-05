@@ -63,6 +63,13 @@ DEFAULT_ROW_BG = "#2b2b2b"
 
 QUEUE_POLL_MS = 500
 
+# How often to re-assert attention (e.g. re-request a Dock bounce) for a
+# still-unacknowledged result. Separate from QUEUE_POLL_MS since a bounce
+# request can be silently ignored by macOS if the app was frontmost when it
+# first fired; this catches the user switching away afterward without
+# acknowledging.
+NUDGE_INTERVAL_MS = 5000
+
 # Base (scale=1.0) font sizes, bumped up from the original cramped defaults
 # for readability. Actual widget fonts are computed by scaling these - see
 # MainWindow._scaled_font() - so the whole UI grows/shrinks together both
@@ -173,6 +180,7 @@ class MainWindow:
         self.scheduler.poll_once_async()
 
         self.root.after(QUEUE_POLL_MS, self._drain_results)
+        self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
 
     # ------------------------------------------------------------------
     # Setup
@@ -613,6 +621,16 @@ class MainWindow:
             if drain_elapsed > SLOW_DRAIN_THRESHOLD_S:
                 logger.warning("_drain_results() itself took %.3fs", drain_elapsed)
             self.root.after(QUEUE_POLL_MS, self._drain_results)
+
+    def _nudge_tick(self) -> None:
+        """Periodically re-assert attention if any watcher is still unacknowledged."""
+        has_unacknowledged = any(watcher.unacknowledged for watcher in self.watchers.values())
+        try:
+            self.router.nudge(has_unacknowledged)
+        except Exception:  # noqa: BLE001 - a nudge failure must never stop the GUI's tick loop
+            logger.exception("router.nudge() failed")
+        finally:
+            self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
 
     def _save(self) -> None:
         self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
