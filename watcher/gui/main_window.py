@@ -60,15 +60,37 @@ DEFAULT_ROW_BG = "#2b2b2b"
 
 QUEUE_POLL_MS = 500
 
-# Base font sizes, bumped up from the original cramped defaults for
-# readability. These are used throughout the window and its rows.
-FONT_TITLE = ("Helvetica", 13, "bold")
-FONT_BUTTON = ("Helvetica", 14)
-FONT_BUTTON_BOLD = ("Helvetica", 14, "bold")
-FONT_BODY = ("Helvetica", 13)
-FONT_DETAIL = ("Helvetica", 11)
-FONT_DOT = ("Helvetica", 14)
-FONT_ICON = ("Helvetica", 12)
+# Base (scale=1.0) font sizes, bumped up from the original cramped defaults
+# for readability. Actual widget fonts are computed by scaling these - see
+# MainWindow._scaled_font() - so the whole UI grows/shrinks together both
+# automatically (window resize) and manually (the "A-"/"A+" buttons).
+FONT_FAMILY = "Helvetica"
+BASE_FONT_SIZES = {
+    "title": (13, True),
+    "button": (14, False),
+    "button_bold": (14, True),
+    "body": (13, False),
+    "detail": (11, False),
+    "dot": (14, False),
+    "icon": (12, False),
+}
+
+# Window width (matching the default geometry below) that corresponds to a
+# 1x auto font scale; wider/narrower windows scale fonts up/down from there.
+BASE_WINDOW_WIDTH = 420
+DEFAULT_WINDOW_SIZE = "420x320"
+MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT = 300, 200
+
+# Bounds for the automatic (window-width-driven) and manual (user button)
+# scale factors, and the combined effective scale applied to fonts.
+AUTO_SCALE_MIN, AUTO_SCALE_MAX = 0.7, 2.0
+MANUAL_SCALE_MIN, MANUAL_SCALE_MAX = 0.5, 2.5
+MANUAL_SCALE_STEP = 0.1
+EFFECTIVE_SCALE_MIN, EFFECTIVE_SCALE_MAX = 0.6, 3.0
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
 def _make_label_button(
@@ -78,7 +100,7 @@ def _make_label_button(
     bg: str,
     fg: str = "white",
     hover_bg: Optional[str] = None,
-    font=FONT_BUTTON,
+    font=(FONT_FAMILY, BASE_FONT_SIZES["button"][0]),
 ) -> tk.Label:
     """
     A Label styled/clicked like a button.
@@ -118,6 +140,17 @@ class MainWindow:
         self.row_widgets: Dict[str, Dict[str, tk.Widget]] = {}
         self._last_drain_at: Optional[float] = None
 
+        # Font scaling state: "manual" is adjusted via the A-/A+ buttons and
+        # persisted across restarts; "auto" tracks the window width and is
+        # recomputed on every resize. The two combine into one effective
+        # scale applied to every registered widget's font.
+        self.manual_font_scale = _clamp(
+            float(self.config.get("font_scale", 1.0)), MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
+        )
+        self._auto_font_scale = 1.0
+        self._scalable_widgets: list = []  # [(widget, font_key), ...]
+        self._last_scaled_width: Optional[int] = None
+
         self.scheduler = Scheduler(poll_interval=self.config.get("poll_interval", 15))
         self.router = NotificationRouter(mode=self.config.get("mode", AT_DESK))
 
@@ -125,6 +158,8 @@ class MainWindow:
 
         self._build_ui()
         self._make_draggable(self.root)
+
+        self.root.bind("<Configure>", self._on_root_configure)
 
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
@@ -144,13 +179,60 @@ class MainWindow:
             except (KeyError, ValueError) as exc:
                 print(f"[watcher] skipping invalid config entry {entry!r}: {exc}")
 
+    # ------------------------------------------------------------------
+    # Font scaling: manual (A-/A+ buttons) + automatic (window width)
+    # ------------------------------------------------------------------
+    def _effective_font_scale(self) -> float:
+        return _clamp(
+            self._auto_font_scale * self.manual_font_scale, EFFECTIVE_SCALE_MIN, EFFECTIVE_SCALE_MAX
+        )
+
+    def _scaled_font(self, key: str) -> tuple:
+        base_size, bold = BASE_FONT_SIZES[key]
+        size = max(6, round(base_size * self._effective_font_scale()))
+        return (FONT_FAMILY, size, "bold") if bold else (FONT_FAMILY, size)
+
+    def _register_font(self, widget: tk.Widget, key: str) -> None:
+        """Track a widget so its font is rescaled by _apply_font_scale()."""
+        self._scalable_widgets.append((widget, key))
+        widget.configure(font=self._scaled_font(key))
+
+    def _apply_font_scale(self) -> None:
+        for widget, key in self._scalable_widgets:
+            try:
+                widget.configure(font=self._scaled_font(key))
+            except tk.TclError:
+                continue
+        if hasattr(self, "_combobox_style"):
+            self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
+
+    def _on_root_configure(self, event: tk.Event) -> None:
+        if event.widget is not self.root:
+            return
+        width = self.root.winfo_width()
+        if width == self._last_scaled_width:
+            return
+        self._last_scaled_width = width
+        auto_scale = _clamp(width / BASE_WINDOW_WIDTH, AUTO_SCALE_MIN, AUTO_SCALE_MAX)
+        if abs(auto_scale - self._auto_font_scale) < 0.01:
+            return
+        self._auto_font_scale = auto_scale
+        self._apply_font_scale()
+
+    def _on_zoom(self, delta: float) -> None:
+        self.manual_font_scale = _clamp(
+            self.manual_font_scale + delta, MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
+        )
+        self._apply_font_scale()
+        self._save()
+
     def _build_ui(self) -> None:
         self.root.title("Watcher")
         self.root.attributes("-topmost", True)
-        self.root.geometry("420x320")
+        self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
         self.root.overrideredirect(True)  # frameless-ish window
-        self.root.minsize(300, 200)
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 
         # Title bar (also the drag handle) with close button and mode selector.
         titlebar = tk.Frame(self.root, bg="#2b2b2b", height=34)
@@ -158,33 +240,44 @@ class MainWindow:
         titlebar.pack_propagate(False)
         self._drag_handles = [titlebar]
 
-        title_label = tk.Label(
-            titlebar, text="👀 Watcher", bg="#2b2b2b", fg="white", font=FONT_TITLE
-        )
+        title_label = tk.Label(titlebar, text="👀 Watcher", bg="#2b2b2b", fg="white")
         title_label.pack(side=tk.LEFT, padx=8)
+        self._register_font(title_label, "title")
         self._drag_handles.append(title_label)
 
-        close_btn = _make_label_button(
-            titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b", font=FONT_BUTTON
-        )
+        close_btn = _make_label_button(titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b")
         close_btn.pack(side=tk.RIGHT, padx=4)
+        self._register_font(close_btn, "button")
 
-        add_btn = _make_label_button(
-            titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57",
-            font=FONT_BUTTON_BOLD,
-        )
+        add_btn = _make_label_button(titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57")
         add_btn.pack(side=tk.RIGHT, padx=2)
+        self._register_font(add_btn, "button_bold")
+
+        # Text size (zoom) controls, independent of window-resize auto-scale.
+        zoom_in_btn = _make_label_button(
+            titlebar, "A+", lambda: self._on_zoom(MANUAL_SCALE_STEP), bg="#2b2b2b", hover_bg="#3a3a3a",
+        )
+        zoom_in_btn.pack(side=tk.RIGHT, padx=2)
+        self._register_font(zoom_in_btn, "button")
+
+        zoom_out_btn = _make_label_button(
+            titlebar, "A-", lambda: self._on_zoom(-MANUAL_SCALE_STEP), bg="#2b2b2b", hover_bg="#3a3a3a",
+        )
+        zoom_out_btn.pack(side=tk.RIGHT, padx=2)
+        self._register_font(zoom_out_btn, "button")
 
         # Mode selector.
         mode_frame = tk.Frame(self.root, bg="#1e1e1e")
         mode_frame.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(6, 0))
-        tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white", font=FONT_BODY).pack(side=tk.LEFT)
+        mode_text_label = tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white")
+        mode_text_label.pack(side=tk.LEFT)
+        self._register_font(mode_text_label, "body")
         self.mode_var = tk.StringVar(value=self.router.mode)
-        style = ttk.Style()
-        style.configure("Watcher.TCombobox", font=FONT_BODY)
+        self._combobox_style = ttk.Style()
+        self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
         mode_menu = ttk.Combobox(
             mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
-            width=10, font=FONT_BODY, style="Watcher.TCombobox",
+            width=10, style="Watcher.TCombobox",
         )
         mode_menu.pack(side=tk.LEFT, padx=4)
         mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
@@ -215,21 +308,23 @@ class MainWindow:
         for watcher in self.watchers.values():
             self._add_row(watcher)
 
+        self.empty_label = None
         if not self.watchers:
-            self.empty_label = tk.Label(
-                self.list_frame,
-                text="No watchers yet. Click + to add one.",
-                bg="#1e1e1e",
-                fg="gray",
-                font=FONT_BODY,
-                wraplength=360,
-                justify=tk.LEFT,
-            )
-            self.empty_label.pack(anchor="w", pady=10)
-        else:
-            self.empty_label = None
+            self._show_empty_label()
 
         self._add_resize_grip()
+
+    def _show_empty_label(self) -> None:
+        self.empty_label = tk.Label(
+            self.list_frame,
+            text="No watchers yet. Click + to add one.",
+            bg="#1e1e1e",
+            fg="gray",
+            wraplength=360,
+            justify=tk.LEFT,
+        )
+        self._register_font(self.empty_label, "body")
+        self.empty_label.pack(anchor="w", pady=10)
 
     def _add_resize_grip(self) -> None:
         """
@@ -254,7 +349,7 @@ class MainWindow:
             start_x, start_y, start_w, start_h = self._resize_origin
             new_w = max(self.root.winfo_reqwidth(), start_w + (event.x_root - start_x))
             new_h = max(self.root.winfo_reqheight(), start_h + (event.y_root - start_y))
-            min_w, min_h = 300, 200
+            min_w, min_h = MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
             new_w = max(new_w, min_w)
             new_h = max(new_h, min_h)
             self.root.geometry(f"{new_w}x{new_h}")
@@ -288,25 +383,27 @@ class MainWindow:
         row = tk.Frame(self.list_frame, bg="#2b2b2b", pady=4, padx=4)
         row.pack(side=tk.TOP, fill=tk.X, pady=2)
 
-        dot = tk.Label(row, text="●", fg=STATUS_COLORS[Status.UNKNOWN], bg="#2b2b2b", font=FONT_DOT)
+        dot = tk.Label(row, text="●", fg=STATUS_COLORS[Status.UNKNOWN], bg="#2b2b2b")
         dot.pack(side=tk.LEFT)
+        self._register_font(dot, "dot")
 
         info_frame = tk.Frame(row, bg="#2b2b2b")
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
 
-        label = tk.Label(info_frame, text=watcher.label, bg="#2b2b2b", fg="white", anchor="w", font=FONT_BODY)
+        label = tk.Label(info_frame, text=watcher.label, bg="#2b2b2b", fg="white", anchor="w")
         label.pack(side=tk.TOP, fill=tk.X)
+        self._register_font(label, "body")
 
         detail = tk.Label(
             info_frame, text="unknown · never checked", bg="#2b2b2b", fg="gray",
-            anchor="w", font=FONT_DETAIL, wraplength=320, justify=tk.LEFT,
+            anchor="w", wraplength=320, justify=tk.LEFT,
         )
         detail.pack(side=tk.TOP, fill=tk.X)
+        self._register_font(detail, "detail")
 
-        notes_icon = tk.Label(
-            row, text="📝", bg="#2b2b2b", font=FONT_ICON, cursor="hand2",
-        )
+        notes_icon = tk.Label(row, text="📝", bg="#2b2b2b", cursor="hand2")
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
+        self._register_font(notes_icon, "icon")
         notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
         self._update_notes_icon(notes_icon, watcher.notes)
 
@@ -315,6 +412,7 @@ class MainWindow:
             bg="#2b2b2b", hover_bg="#c0392b",
         )
         remove_btn.pack(side=tk.RIGHT)
+        self._register_font(remove_btn, "button")
 
         self.row_widgets[watcher.id] = {
             "dot": dot,
@@ -333,17 +431,16 @@ class MainWindow:
     def _remove_row(self, watcher_id: str) -> None:
         widgets = self.row_widgets.pop(watcher_id, None)
         if widgets:
+            # Drop these from the scalable-font registry before destroying
+            # them, otherwise _apply_font_scale() keeps trying (harmlessly,
+            # but pointlessly) to configure dead widgets forever.
+            dead = set(widgets.values())
+            self._scalable_widgets = [
+                (widget, key) for widget, key in self._scalable_widgets if widget not in dead
+            ]
             widgets["row"].destroy()
         if not self.watchers and getattr(self, "empty_label", None) is None:
-            self.empty_label = tk.Label(
-                self.list_frame,
-                text="No watchers yet. Click + to add one.",
-                bg="#1e1e1e",
-                fg="gray",
-                wraplength=280,
-                justify=tk.LEFT,
-            )
-            self.empty_label.pack(anchor="w", pady=10)
+            self._show_empty_label()
 
     def _update_row(self, watcher_id: str, result: CheckResult) -> None:
         widgets = self.row_widgets.get(watcher_id)
@@ -488,6 +585,7 @@ class MainWindow:
         self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
         self.config["mode"] = self.router.mode
         self.config["poll_interval"] = self.scheduler.poll_interval
+        self.config["font_scale"] = self.manual_font_scale
         save_config(self.config)
 
 
