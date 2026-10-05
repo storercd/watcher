@@ -22,8 +22,11 @@ you when they become actionable (e.g. a build finishes or all checks pass).
 - Fires a native macOS notification (via `osascript`/`display notification`,
   no extra dependency) when something becomes actionable.
 - Has a "Mode" dropdown (**At Desk** / **Away**) that controls which
-  notifier(s) fire. "Away" currently just logs a TODO — SMS/Slack
-  integration is a planned follow-up.
+  notifier(s) fire. "At Desk" uses native macOS notifications; "Away"
+  publishes to a configurable [ntfy](https://ntfy.sh/) topic so you can get
+  a push notification on your phone via the ntfy app.
+- Has a **⚙** settings button in the title bar for configuring the ntfy
+  server and topic used by "Away" mode.
 - Saves everything you add to `~/.watcher/config.json` so your watchers
   survive an app restart.
 
@@ -104,11 +107,12 @@ watcher/
   notifiers/
     base.py         # abstract Notifier interface
     macos.py        # MacOSNotifier (osascript "display notification")
-    away.py         # AwayNotifier stub (TODO: SMS/Slack)
+    away.py         # AwayNotifier (publishes to a configurable ntfy topic)
     router.py       # NotificationRouter: mode -> notifier(s) dispatch
   gui/
     main_window.py        # the always-on-top window, drag handling, polling loop
     add_watcher_dialog.py # watcher-type picker + per-type "Add ... Watcher" dialogs
+    settings_dialog.py    # settings dialog (ntfy server/topic for Away mode)
 main.py             # entrypoint: python main.py
 tests/
   test_jenkins_watcher.py    # unit tests for Jenkins status + transition logic
@@ -171,8 +175,10 @@ workflow (`.github/workflows/ci.yml`), across Python 3.9–3.12.
   manage GitHub credentials itself.
 - GitHub Actions Run watchers track the whole run's status, not an
   individual job within a multi-job run.
-- "Away" mode notifications are a stub (prints a TODO) pending SMS/Slack
-  integration.
+- "Away" mode notifications require a reachable ntfy server (defaults to
+  the public `ntfy.sh`) and the user to subscribe to the configured topic in
+  the ntfy app on their phone; there's no in-app verification that the topic
+  is actually being received.
 - Poll interval is currently a single global value for all watchers
   (`~/.watcher/config.json` -> `poll_interval`), not configurable in the GUI
   yet.

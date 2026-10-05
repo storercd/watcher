@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from watcher.notifiers.away import AwayNotifier
+from watcher.notifiers.away import DEFAULT_NTFY_SERVER, AwayNotifier
 from watcher.notifiers.base import Notifier
 from watcher.notifiers.macos import MacOSNotifier
 
@@ -22,13 +22,18 @@ MODES = (AT_DESK, AWAY)
 class NotificationRouter:
     """Holds the current mode and dispatches to the matching notifier(s)."""
 
-    def __init__(self, mode: str = AT_DESK):
+    def __init__(self, mode: str = AT_DESK, ntfy_server: str = DEFAULT_NTFY_SERVER, ntfy_topic: str = ""):
         """Initialize the router with a starting mode, defaulting to At Desk."""
         self.mode = mode if mode in MODES else AT_DESK
+        self.away_notifier = AwayNotifier(server=ntfy_server, topic=ntfy_topic)
         self._notifiers: Dict[str, List[Notifier]] = {
             AT_DESK: [MacOSNotifier()],
-            AWAY: [AwayNotifier()],
+            AWAY: [self.away_notifier],
         }
+
+    def configure_away(self, server: str, topic: str) -> None:
+        """Update the ntfy server/topic used by the Away notifier."""
+        self.away_notifier.configure(server=server, topic=topic)
 
     def set_mode(self, mode: str) -> None:
         """
