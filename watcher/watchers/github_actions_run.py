@@ -161,6 +161,11 @@ class GitHubActionsRunWatcher(Watcher):
         """
         return _default_label_from_url(self.run_url)
 
+    @property
+    def display_url(self) -> Optional[str]:
+        """The GitHub Actions run URL, for opening in a browser."""
+        return self.run_url
+
     @classmethod
     def matches_url(cls, url: str) -> bool:
         """
