@@ -59,7 +59,8 @@ class Watcher(ABC):
         """Initialize a watcher with an id (generated if omitted), a label, and optional notes."""
         self.id = watcher_id or str(uuid.uuid4())
         self.label = label or self.default_label()
-        # Freeform text for "why this mattered" / follow-up reminders; shown as a tooltip in the GUI.
+        # Freeform text for "why this mattered" / follow-up reminders; viewed/edited
+        # by clicking the notes icon in the GUI.
         self.notes = notes
         self.last_status: Status = Status.UNKNOWN
         self.last_checked: Optional[float] = None

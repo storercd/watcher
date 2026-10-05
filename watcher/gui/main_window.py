@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import time
 import tkinter as tk
@@ -14,6 +15,7 @@ from watcher.core.config import (
     save_config,
     watchers_to_config_list,
 )
+from watcher.core.logging_config import configure_logging
 from watcher.core.registry import get_watcher_class
 from watcher.core.scheduler import Scheduler
 from watcher.gui.add_watcher_dialog import (
@@ -22,10 +24,17 @@ from watcher.gui.add_watcher_dialog import (
     ChooseWatcherTypeDialog,
     EditNotesDialog,
 )
-from watcher.gui.tooltip import Tooltip
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401 - registers plugin
+
+logger = logging.getLogger("watcher.gui")
+
+# How long a single _drain_results() tick (which runs on the Tk main thread)
+# is allowed to take before it's suspicious enough to log a warning - this is
+# scheduled every QUEUE_POLL_MS, so any one call taking much longer than that
+# is itself evidence the GUI is about to appear to "hang".
+SLOW_DRAIN_THRESHOLD_S = 0.2
 
 STATUS_COLORS = {
     Status.UNKNOWN: "#888888",
@@ -101,6 +110,7 @@ class MainWindow:
         self.config = load_config()
         self.watchers: Dict[str, Watcher] = {}
         self.row_widgets: Dict[str, Dict[str, tk.Widget]] = {}
+        self._last_drain_at: Optional[float] = None
 
         self.scheduler = Scheduler(poll_interval=self.config.get("poll_interval", 15))
         self.router = NotificationRouter(mode=self.config.get("mode", AT_DESK))
@@ -249,12 +259,7 @@ class MainWindow:
         )
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
-        tooltip = Tooltip(notes_icon, watcher.notes)
-        # Also show the tooltip when hovering the label/detail text or the row
-        # itself, not just the small icon (Enter/Leave don't bubble in Tk).
-        for widget in (row, info_frame, label, detail):
-            tooltip.attach(widget)
-        self._update_notes_icon(notes_icon, tooltip, watcher.notes)
+        self._update_notes_icon(notes_icon, watcher.notes)
 
         remove_btn = _make_label_button(
             row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
@@ -269,14 +274,7 @@ class MainWindow:
             "row": row,
             "info_frame": info_frame,
             "notes_icon": notes_icon,
-            "tooltip": tooltip,
         }
-
-        # Also show the note tooltip when hovering the label/detail text or
-        # the row itself, not just the small icon (Enter/Leave don't bubble
-        # in Tk).
-        for widget in (row, info_frame, label, detail):
-            tooltip.attach(widget)
 
         # Clicking anywhere on the row (besides the remove/notes buttons)
         # acknowledges a completed/failed build and clears its highlight.
@@ -346,9 +344,8 @@ class MainWindow:
         self._save()
         self.scheduler.poll_once_async()
 
-    def _update_notes_icon(self, icon: tk.Label, tooltip: Tooltip, notes: str) -> None:
+    def _update_notes_icon(self, icon: tk.Label, notes: str) -> None:
         icon.configure(fg="#d9a400" if notes else "#555555")
-        tooltip.set_text(notes or "Click to add a note")
 
     def _on_edit_notes(self, watcher_id: str) -> None:
         watcher = self.watchers.get(watcher_id)
@@ -360,7 +357,7 @@ class MainWindow:
         watcher.notes = dialog.result
         widgets = self.row_widgets.get(watcher_id)
         if widgets:
-            self._update_notes_icon(widgets["notes_icon"], widgets["tooltip"], watcher.notes)
+            self._update_notes_icon(widgets["notes_icon"], watcher.notes)
         self._save()
 
     def _on_remove_watcher(self, watcher_id: str) -> None:
@@ -393,6 +390,16 @@ class MainWindow:
     # Scheduler queue draining (runs on the Tk main loop thread)
     # ------------------------------------------------------------------
     def _drain_results(self) -> None:
+        tick_start = time.monotonic()
+        if self._last_drain_at is not None:
+            gap = tick_start - self._last_drain_at
+            # This tick is scheduled QUEUE_POLL_MS apart; a much bigger gap
+            # means the Tk main loop itself was blocked doing something else
+            # (e.g. a synchronous subprocess call) in between ticks.
+            if gap > (QUEUE_POLL_MS / 1000.0) * 3:
+                logger.warning("GUI main loop stalled for %.3fs between drain ticks", gap)
+        self._last_drain_at = tick_start
+
         try:
             while True:
                 watcher_id, result = self.scheduler.results.get_nowait()
@@ -401,14 +408,25 @@ class MainWindow:
                     continue
                 self._update_row(watcher_id, result)
                 if result.newly_actionable:
+                    notify_start = time.monotonic()
                     self.router.notify(
                         title=f"Watcher: {watcher.label}",
                         message=f"{STATUS_LABELS.get(result.status, result.status.value)} — {result.detail}",
                     )
+                    notify_elapsed = time.monotonic() - notify_start
+                    logger.debug("router.notify() for %r took %.3fs", watcher.label, notify_elapsed)
+                    if notify_elapsed > 0.1:
+                        logger.warning(
+                            "router.notify() for %r blocked the GUI thread for %.3fs",
+                            watcher.label, notify_elapsed,
+                        )
                     self._save()
         except queue.Empty:
             pass
         finally:
+            drain_elapsed = time.monotonic() - tick_start
+            if drain_elapsed > SLOW_DRAIN_THRESHOLD_S:
+                logger.warning("_drain_results() itself took %.3fs", drain_elapsed)
             self.root.after(QUEUE_POLL_MS, self._drain_results)
 
     def _save(self) -> None:
@@ -420,6 +438,9 @@ class MainWindow:
 
 def run() -> None:
     """Create and run the Watcher main window's Tk event loop."""
+    configure_logging()
+    logger.info("Watcher starting up")
     root = tk.Tk()
     MainWindow(root)
     root.mainloop()
+    logger.info("Watcher shut down")
