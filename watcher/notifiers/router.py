@@ -26,9 +26,13 @@ class NotificationRouter:
         """Initialize the router with a starting mode, defaulting to At Desk."""
         self.mode = mode if mode in MODES else AT_DESK
         self.away_notifier = AwayNotifier(server=ntfy_server, topic=ntfy_topic)
+        # Away mode is additive, not a replacement: the desktop (macOS)
+        # notifier keeps firing so you're still alerted if you're at your
+        # desk when something finishes, with AwayNotifier's remote channel
+        # (ntfy) layered on top for when you're not.
         self._notifiers: Dict[str, List[Notifier]] = {
             AT_DESK: [MacOSNotifier()],
-            AWAY: [self.away_notifier],
+            AWAY: [MacOSNotifier(), self.away_notifier],
         }
 
     def configure_away(self, server: str, topic: str) -> None:
