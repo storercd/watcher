@@ -20,6 +20,8 @@ from watcher.core.logging_config import configure_logging
 from watcher.core.registry import detect_watcher_class, get_watcher_class
 from watcher.core.scheduler import Scheduler
 from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditNotesDialog
+from watcher.gui.settings_dialog import SettingsDialog
+from watcher.notifiers.away import DEFAULT_NTFY_SERVER
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
@@ -153,7 +155,11 @@ class MainWindow:
         self._last_scaled_width: Optional[int] = None
 
         self.scheduler = Scheduler(poll_interval=self.config.get("poll_interval", 15))
-        self.router = NotificationRouter(mode=self.config.get("mode", AT_DESK))
+        self.router = NotificationRouter(
+            mode=self.config.get("mode", AT_DESK),
+            ntfy_server=self.config.get("ntfy_server", DEFAULT_NTFY_SERVER),
+            ntfy_topic=self.config.get("ntfy_topic", ""),
+        )
 
         self._load_watchers_from_config()
 
@@ -253,6 +259,12 @@ class MainWindow:
         add_btn = _make_label_button(titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57")
         add_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(add_btn, "button_bold")
+
+        settings_btn = _make_label_button(
+            titlebar, "⚙", self._on_open_settings, bg="#2b2b2b", hover_bg="#3a3a3a",
+        )
+        settings_btn.pack(side=tk.RIGHT, padx=2)
+        self._register_font(settings_btn, "button")
 
         # Text size (zoom) controls, independent of window-resize auto-scale.
         zoom_in_btn = _make_label_button(
@@ -471,6 +483,16 @@ class MainWindow:
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
+    def _on_open_settings(self) -> None:
+        dialog = SettingsDialog(
+            self.root, ntfy_server=self.router.away_notifier.server, ntfy_topic=self.router.away_notifier.topic
+        )
+        if not dialog.result:
+            return
+        server, topic = dialog.result
+        self.router.configure_away(server=server, topic=topic)
+        self._save()
+
     def _on_add_watcher(self) -> None:
         dialog = AddWatcherDialog(self.root)
         if not dialog.result:
@@ -595,6 +617,8 @@ class MainWindow:
     def _save(self) -> None:
         self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
         self.config["mode"] = self.router.mode
+        self.config["ntfy_server"] = self.router.away_notifier.server
+        self.config["ntfy_topic"] = self.router.away_notifier.topic
         self.config["poll_interval"] = self.scheduler.poll_interval
         self.config["font_scale"] = self.manual_font_scale
         save_config(self.config)

@@ -18,10 +18,14 @@ DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
 
 DEFAULT_POLL_INTERVAL = 15
 DEFAULT_MODE = "At Desk"
+DEFAULT_NTFY_SERVER = "https://ntfy.sh"
+DEFAULT_NTFY_TOPIC = ""
 
 _DEFAULT_CONFIG: Dict[str, Any] = {
     "poll_interval": DEFAULT_POLL_INTERVAL,
     "mode": DEFAULT_MODE,
+    "ntfy_server": DEFAULT_NTFY_SERVER,
+    "ntfy_topic": DEFAULT_NTFY_TOPIC,
     "watchers": [],
 }
 
