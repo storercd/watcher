@@ -135,6 +135,16 @@ class JenkinsWatcher(Watcher):
         """
         return self.job_url.rstrip("/").split("/")[-1] or self.job_url
 
+    @classmethod
+    def matches_url(cls, url: str) -> bool:
+        """
+        Whether a pasted URL looks like a Jenkins job (has a ``/job/`` segment).
+
+        Returns:
+            True if the URL contains a ``/job/`` path segment.
+        """
+        return "/job/" in url.rstrip("/")
+
     def check(self) -> CheckResult:
         """
         Poll the Jenkins job and report its status/newly-actionable state.

@@ -8,7 +8,7 @@ to import every plugin directly.
 
 from __future__ import annotations
 
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
 from watcher.core.base import Watcher
 
@@ -40,6 +40,25 @@ def get_watcher_class(watcher_type: str) -> Type[Watcher]:
         return _REGISTRY[watcher_type]
     except KeyError as exc:
         raise ValueError(f"Unknown watcher_type: {watcher_type!r}") from exc
+
+
+def detect_watcher_class(url: str) -> Optional[Type[Watcher]]:
+    """
+    Find the registered Watcher subclass that recognizes a pasted URL.
+
+    Lets the "Add Watcher" dialog accept one URL and dynamically determine
+    which watcher type it belongs to, instead of asking the user to pick a
+    type up front.
+
+    Returns:
+        The first registered Watcher subclass whose ``matches_url()``
+        returns True for ``url``, or None if no registered type recognizes
+        it.
+    """
+    for watcher_cls in _REGISTRY.values():
+        if watcher_cls.matches_url(url):
+            return watcher_cls
+    return None
 
 
 def available_types() -> Dict[str, Type[Watcher]]:

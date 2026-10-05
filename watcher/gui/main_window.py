@@ -16,15 +16,9 @@ from watcher.core.config import (
     watchers_to_config_list,
 )
 from watcher.core.logging_config import configure_logging
-from watcher.core.registry import get_watcher_class
+from watcher.core.registry import detect_watcher_class, get_watcher_class
 from watcher.core.scheduler import Scheduler
-from watcher.gui.add_watcher_dialog import (
-    AddGitHubActionsRunWatcherDialog,
-    AddGitHubPRWatcherDialog,
-    AddJenkinsWatcherDialog,
-    ChooseWatcherTypeDialog,
-    EditNotesDialog,
-)
+from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditNotesDialog
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
@@ -324,30 +318,26 @@ class MainWindow:
     # Event handlers
     # ------------------------------------------------------------------
     def _on_add_watcher(self) -> None:
-        type_dialog = ChooseWatcherTypeDialog(self.root)
-        if type_dialog.result == "jenkins":
-            dialog = AddJenkinsWatcherDialog(self.root)
-            if not dialog.result:
-                return
-            job_url, label, notes = dialog.result
-            watcher = JenkinsWatcher(job_url=job_url, label=label, notes=notes)
-        elif type_dialog.result == "github_pr":
-            dialog = AddGitHubPRWatcherDialog(self.root)
-            if not dialog.result:
-                return
-            pr_url, label, notes = dialog.result
-            watcher = GitHubPRWatcher(pr_url=pr_url, label=label, notes=notes)
-        elif type_dialog.result == "github_actions_run":
-            dialog = AddGitHubActionsRunWatcherDialog(self.root)
-            if not dialog.result:
-                return
-            run_url, label, notes = dialog.result
-            try:
-                watcher = GitHubActionsRunWatcher(run_url=run_url, label=label, notes=notes)
-            except ValueError as exc:
-                messagebox.showerror("Add GitHub Actions Run Watcher", str(exc))
-                return
-        else:
+        dialog = AddWatcherDialog(self.root)
+        if not dialog.result:
+            return
+        url, label, notes = dialog.result
+
+        watcher_cls = detect_watcher_class(url)
+        if watcher_cls is None:
+            messagebox.showerror(
+                "Add Watcher",
+                "Could not determine what kind of URL this is.\n\n"
+                "Expected a Jenkins job URL (contains /job/), a GitHub PR URL "
+                "(github.com/owner/repo/pull/123), or a GitHub Actions run URL "
+                "(github.com/owner/repo/actions/runs/123456).",
+            )
+            return
+
+        try:
+            watcher = watcher_cls(url, label=label, notes=notes)
+        except ValueError as exc:
+            messagebox.showerror("Add Watcher", str(exc))
             return
 
         self.watchers[watcher.id] = watcher
