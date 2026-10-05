@@ -3,7 +3,7 @@ Dialogs for adding a new watcher.
 
 Includes a watcher-type picker plus one dialog per watcher type (Jenkins
 job, GitHub PR). The per-type dialogs each return a generic
-``(target, label)`` tuple so ``main_window.py`` can build the right
+``(target, label, notes)`` tuple so ``main_window.py`` can build the right
 ``Watcher`` subclass without needing to know the field names used in each
 dialog's body.
 """
@@ -59,7 +59,8 @@ class AddJenkinsWatcherDialog(simpledialog.Dialog):
         """Initialize dialog state before building the modal body."""
         self.job_url_var = tk.StringVar()
         self.label_var = tk.StringVar()
-        self.result: Optional[Tuple[str, str]] = None
+        self.notes_text: Optional[tk.Text] = None
+        self.result: Optional[Tuple[str, str, str]] = None
         super().__init__(parent, title="Add Jenkins Watcher")
 
     def body(self, master):
@@ -76,11 +77,15 @@ class AddJenkinsWatcherDialog(simpledialog.Dialog):
         tk.Label(master, text="Label (optional):").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         tk.Entry(master, textvariable=self.label_var, width=40).grid(row=1, column=1, padx=4, pady=4)
 
+        tk.Label(master, text="Notes (optional):").grid(row=2, column=0, sticky="nw", padx=4, pady=4)
+        self.notes_text = tk.Text(master, width=30, height=3, wrap="word")
+        self.notes_text.grid(row=2, column=1, padx=4, pady=4)
+
         tk.Label(
             master,
             text="e.g. https://jenkins.example.com/job/my-job",
             fg="gray",
-        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=4)
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4)
 
         return url_entry  # initial focus
 
@@ -96,8 +101,9 @@ class AddJenkinsWatcherDialog(simpledialog.Dialog):
         return True
 
     def apply(self) -> None:
-        """Store the entered URL/label as the dialog's result on accept."""
-        self.result = (self.job_url_var.get().strip(), self.label_var.get().strip())
+        """Store the entered URL/label/notes as the dialog's result on accept."""
+        notes = self.notes_text.get("1.0", "end").strip() if self.notes_text else ""
+        self.result = (self.job_url_var.get().strip(), self.label_var.get().strip(), notes)
 
 
 class AddGitHubPRWatcherDialog(simpledialog.Dialog):
@@ -107,7 +113,8 @@ class AddGitHubPRWatcherDialog(simpledialog.Dialog):
         """Initialize dialog state before building the modal body."""
         self.pr_url_var = tk.StringVar()
         self.label_var = tk.StringVar()
-        self.result: Optional[Tuple[str, str]] = None
+        self.notes_text: Optional[tk.Text] = None
+        self.result: Optional[Tuple[str, str, str]] = None
         super().__init__(parent, title="Add GitHub PR Watcher")
 
     def body(self, master):
@@ -124,12 +131,16 @@ class AddGitHubPRWatcherDialog(simpledialog.Dialog):
         tk.Label(master, text="Label (optional):").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         tk.Entry(master, textvariable=self.label_var, width=44).grid(row=1, column=1, padx=4, pady=4)
 
+        tk.Label(master, text="Notes (optional):").grid(row=2, column=0, sticky="nw", padx=4, pady=4)
+        self.notes_text = tk.Text(master, width=34, height=3, wrap="word")
+        self.notes_text.grid(row=2, column=1, padx=4, pady=4)
+
         tk.Label(
             master,
             text="e.g. https://github.com/owner/repo/pull/123\nUses your `gh` CLI login — run `gh auth login` first.",
             fg="gray",
             justify=tk.LEFT,
-        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=4)
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4)
 
         return url_entry  # initial focus
 
@@ -145,5 +156,37 @@ class AddGitHubPRWatcherDialog(simpledialog.Dialog):
         return True
 
     def apply(self) -> None:
-        """Store the entered URL/label as the dialog's result on accept."""
-        self.result = (self.pr_url_var.get().strip(), self.label_var.get().strip())
+        """Store the entered URL/label/notes as the dialog's result on accept."""
+        notes = self.notes_text.get("1.0", "end").strip() if self.notes_text else ""
+        self.result = (self.pr_url_var.get().strip(), self.label_var.get().strip(), notes)
+
+
+class EditNotesDialog(simpledialog.Dialog):
+    """Modal dialog for editing the follow-up notes on an existing watcher."""
+
+    def __init__(self, parent, label: str, initial_notes: str = ""):
+        """Initialize dialog state, pre-filling the text box with existing notes."""
+        self.label = label
+        self.initial_notes = initial_notes
+        self.notes_text: Optional[tk.Text] = None
+        self.result: Optional[str] = None
+        super().__init__(parent, title=f"Notes — {label}")
+
+    def body(self, master):
+        """
+        Build the dialog's form fields and return the widget to focus initially.
+
+        Returns:
+            The Text widget that should receive initial keyboard focus.
+        """
+        tk.Label(master, text=f"Why does {self.label!r} matter? What's the follow-up?").grid(
+            row=0, column=0, sticky="w", padx=4, pady=(4, 2)
+        )
+        self.notes_text = tk.Text(master, width=40, height=5, wrap="word")
+        self.notes_text.grid(row=1, column=0, padx=4, pady=(0, 4))
+        self.notes_text.insert("1.0", self.initial_notes)
+        return self.notes_text  # initial focus
+
+    def apply(self) -> None:
+        """Store the edited notes as the dialog's result on accept."""
+        self.result = self.notes_text.get("1.0", "end").strip() if self.notes_text else ""

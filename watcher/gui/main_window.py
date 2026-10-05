@@ -20,7 +20,9 @@ from watcher.gui.add_watcher_dialog import (
     AddGitHubPRWatcherDialog,
     AddJenkinsWatcherDialog,
     ChooseWatcherTypeDialog,
+    EditNotesDialog,
 )
+from watcher.gui.tooltip import Tooltip
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401 - registers plugin
@@ -242,6 +244,14 @@ class MainWindow:
         )
         detail.pack(side=tk.TOP, fill=tk.X)
 
+        notes_icon = tk.Label(
+            row, text="📝", bg="#2b2b2b", font=("Helvetica", 10), cursor="hand2",
+        )
+        notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
+        notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
+        tooltip = Tooltip(notes_icon, watcher.notes)
+        self._update_notes_icon(notes_icon, tooltip, watcher.notes)
+
         remove_btn = _make_label_button(
             row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
             bg="#2b2b2b", hover_bg="#c0392b",
@@ -249,10 +259,22 @@ class MainWindow:
         remove_btn.pack(side=tk.RIGHT)
 
         self.row_widgets[watcher.id] = {
-            "dot": dot, "label": label, "detail": detail, "row": row, "info_frame": info_frame,
+            "dot": dot,
+            "label": label,
+            "detail": detail,
+            "row": row,
+            "info_frame": info_frame,
+            "notes_icon": notes_icon,
+            "tooltip": tooltip,
         }
 
-        # Clicking anywhere on the row (besides the remove button)
+        # Also show the note tooltip when hovering the label/detail text or
+        # the row itself, not just the small icon (Enter/Leave don't bubble
+        # in Tk).
+        for widget in (row, info_frame, label, detail):
+            tooltip.attach(widget)
+
+        # Clicking anywhere on the row (besides the remove/notes buttons)
         # acknowledges a completed/failed build and clears its highlight.
         for widget in (row, info_frame, label, detail):
             widget.bind("<Button-1>", lambda _event, wid=watcher.id: self._on_acknowledge(wid))
@@ -303,14 +325,14 @@ class MainWindow:
             dialog = AddJenkinsWatcherDialog(self.root)
             if not dialog.result:
                 return
-            job_url, label = dialog.result
-            watcher = JenkinsWatcher(job_url=job_url, label=label)
+            job_url, label, notes = dialog.result
+            watcher = JenkinsWatcher(job_url=job_url, label=label, notes=notes)
         elif type_dialog.result == "github_pr":
             dialog = AddGitHubPRWatcherDialog(self.root)
             if not dialog.result:
                 return
-            pr_url, label = dialog.result
-            watcher = GitHubPRWatcher(pr_url=pr_url, label=label)
+            pr_url, label, notes = dialog.result
+            watcher = GitHubPRWatcher(pr_url=pr_url, label=label, notes=notes)
         else:
             return
 
@@ -319,6 +341,23 @@ class MainWindow:
         self.scheduler.add_watcher(watcher)
         self._save()
         self.scheduler.poll_once_async()
+
+    def _update_notes_icon(self, icon: tk.Label, tooltip: Tooltip, notes: str) -> None:
+        icon.configure(fg="#d9a400" if notes else "#555555")
+        tooltip.set_text(notes or "Click to add a note")
+
+    def _on_edit_notes(self, watcher_id: str) -> None:
+        watcher = self.watchers.get(watcher_id)
+        if watcher is None:
+            return
+        dialog = EditNotesDialog(self.root, label=watcher.label, initial_notes=watcher.notes)
+        if dialog.result is None:
+            return
+        watcher.notes = dialog.result
+        widgets = self.row_widgets.get(watcher_id)
+        if widgets:
+            self._update_notes_icon(widgets["notes_icon"], widgets["tooltip"], watcher.notes)
+        self._save()
 
     def _on_remove_watcher(self, watcher_id: str) -> None:
         self.watchers.pop(watcher_id, None)
