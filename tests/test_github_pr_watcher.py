@@ -101,15 +101,22 @@ class TestGitHubPRWatcherCheck:
         return GitHubPRWatcher(pr_url=pr_url)
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
-    def test_first_check_never_notifies(self, mock_run):
-        """The very first check establishes a baseline without notifying."""
+    def test_first_check_notifies_for_already_finished_pr(self, mock_run):
+        """
+        The very first check still notifies if the PR was already resolved.
+
+        A PR can already have finished checks by the time it's added (e.g. it
+        completed moments before the user pasted the URL), so the first poll
+        must notify instead of silently requiring a new commit first.
+        """
         mock_run.return_value = _pr_data("sha1", [_check_run("SUCCESS")])
         watcher = self._make_watcher()
 
         result = watcher.check()
 
         assert result.status == Status.SUCCESS
-        assert result.newly_actionable is False
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
         assert watcher.last_head_sha == "sha1"
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
