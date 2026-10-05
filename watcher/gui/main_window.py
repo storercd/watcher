@@ -6,7 +6,7 @@ import logging
 import queue
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Dict, Optional
 
 from watcher.core.base import CheckResult, Status, Watcher
@@ -19,12 +19,14 @@ from watcher.core.logging_config import configure_logging
 from watcher.core.registry import get_watcher_class
 from watcher.core.scheduler import Scheduler
 from watcher.gui.add_watcher_dialog import (
+    AddGitHubActionsRunWatcherDialog,
     AddGitHubPRWatcherDialog,
     AddJenkinsWatcherDialog,
     ChooseWatcherTypeDialog,
     EditNotesDialog,
 )
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
+from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401 - registers plugin
 
@@ -335,6 +337,16 @@ class MainWindow:
                 return
             pr_url, label, notes = dialog.result
             watcher = GitHubPRWatcher(pr_url=pr_url, label=label, notes=notes)
+        elif type_dialog.result == "github_actions_run":
+            dialog = AddGitHubActionsRunWatcherDialog(self.root)
+            if not dialog.result:
+                return
+            run_url, label, notes = dialog.result
+            try:
+                watcher = GitHubActionsRunWatcher(run_url=run_url, label=label, notes=notes)
+            except ValueError as exc:
+                messagebox.showerror("Add GitHub Actions Run Watcher", str(exc))
+                return
         else:
             return
 
