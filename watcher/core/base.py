@@ -40,6 +40,7 @@ class CheckResult:
     status: Status
     detail: str = ""
     newly_actionable: bool = False
+    unacknowledged: bool = False
     checked_at: float = field(default_factory=time.time)
 
 
@@ -61,6 +62,21 @@ class Watcher(ABC):
         self.last_status: Status = Status.UNKNOWN
         self.last_checked: Optional[float] = None
         self.last_detail: str = ""
+        # Whether the most recent actionable (success/failure) result is still
+        # pending the user's acknowledgment (e.g. a click in the GUI). The GUI
+        # keeps that row highlighted, and notifications keep firing on
+        # restart, until :meth:`acknowledge` is called.
+        self.unacknowledged: bool = False
+
+    def acknowledge(self) -> None:
+        """
+        Mark the current actionable result as seen by the user.
+
+        Subclasses that track completions more specifically (e.g. by build
+        number) should override this to persist exactly which result was
+        acknowledged, so a later genuinely-new completion still notifies.
+        """
+        self.unacknowledged = False
 
     def default_label(self) -> str:
         """

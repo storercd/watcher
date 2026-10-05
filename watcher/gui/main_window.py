@@ -38,6 +38,14 @@ STATUS_LABELS = {
     Status.ERROR: "error",
 }
 
+# Full-row background used while an actionable result is unacknowledged, so
+# a completed (or failed/aborted) job is unmissable until the user clicks it.
+ROW_HIGHLIGHT_BG = {
+    Status.SUCCESS: STATUS_COLORS[Status.SUCCESS],
+    Status.FAILURE: STATUS_COLORS[Status.FAILURE],
+}
+DEFAULT_ROW_BG = "#2b2b2b"
+
 QUEUE_POLL_MS = 500
 
 
@@ -235,7 +243,14 @@ class MainWindow:
         )
         remove_btn.pack(side=tk.RIGHT)
 
-        self.row_widgets[watcher.id] = {"dot": dot, "label": label, "detail": detail, "row": row}
+        self.row_widgets[watcher.id] = {
+            "dot": dot, "label": label, "detail": detail, "row": row, "info_frame": info_frame,
+        }
+
+        # Clicking anywhere on the row (besides the remove button)
+        # acknowledges a completed/failed build and clears its highlight.
+        for widget in (row, info_frame, label, detail):
+            widget.bind("<Button-1>", lambda _event, wid=watcher.id: self._on_acknowledge(wid))
 
     def _remove_row(self, watcher_id: str) -> None:
         widgets = self.row_widgets.pop(watcher_id, None)
@@ -256,12 +271,23 @@ class MainWindow:
         widgets = self.row_widgets.get(watcher_id)
         if not widgets:
             return
-        widgets["dot"].configure(fg=STATUS_COLORS.get(result.status, "#888888"))
+
+        bg = ROW_HIGHLIGHT_BG.get(result.status, DEFAULT_ROW_BG) if result.unacknowledged else DEFAULT_ROW_BG
+        fg = "white" if result.unacknowledged else "gray"
+        cursor = "pointinghand" if result.unacknowledged else "arrow"
+
+        widgets["row"].configure(bg=bg, cursor=cursor)
+        widgets["info_frame"].configure(bg=bg, cursor=cursor)
+        widgets["dot"].configure(fg=STATUS_COLORS.get(result.status, "#888888"), bg=bg)
+        widgets["label"].configure(bg=bg)
+
         checked_at = time.strftime("%H:%M:%S", time.localtime(result.checked_at))
         text = f"{STATUS_LABELS.get(result.status, result.status.value)} · last checked {checked_at}"
         if result.detail:
             text += f" · {result.detail}"
-        widgets["detail"].configure(text=text)
+        if result.unacknowledged:
+            text += " · click to acknowledge"
+        widgets["detail"].configure(text=text, bg=bg, fg=fg)
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -282,6 +308,17 @@ class MainWindow:
         self.watchers.pop(watcher_id, None)
         self.scheduler.remove_watcher(watcher_id)
         self._remove_row(watcher_id)
+        self._save()
+
+    def _on_acknowledge(self, watcher_id: str) -> None:
+        watcher = self.watchers.get(watcher_id)
+        if watcher is None or not watcher.unacknowledged:
+            return
+        watcher.acknowledge()
+        self._update_row(
+            watcher_id,
+            CheckResult(status=watcher.last_status, detail=watcher.last_detail, unacknowledged=False),
+        )
         self._save()
 
     def _on_mode_change(self, _event=None) -> None:

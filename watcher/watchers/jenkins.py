@@ -3,13 +3,15 @@ Jenkins job watcher plugin.
 
 Polls a Jenkins job's JSON API (``<job_url>/api/json``) anonymously and
 reports its build status. Detects state transitions and newly completed
-builds (by tracking the last seen build number) so the scheduler only flags
-``newly_actionable`` once per completed build.
+builds (by tracking the last seen build number) so the scheduler flags
+``newly_actionable`` once per completed build - and again on every app
+restart for as long as that completion remains unacknowledged.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
@@ -18,6 +20,36 @@ from watcher.core.base import CheckResult, Status, Watcher
 from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 10
+
+# Matches a trailing build-number segment, e.g. ".../my-job/645" -> ".../my-job".
+# Users sometimes paste the URL of a specific build (copied from the browser
+# while looking at that build) instead of the job itself; a build-level
+# api/json has a completely different shape (no "color"/"lastBuild") so it
+# must be normalized back to the job URL or every check() silently reports
+# Status.UNKNOWN and build completions are never noticed.
+_TRAILING_BUILD_NUMBER_RE = re.compile(r"/\d+$")
+
+
+def _normalize_job_url(job_url: str) -> str:
+    """
+    Strip a trailing build number from ``job_url``, if present.
+
+    A URL like ``.../job/my-job/645`` is normalized to ``.../job/my-job``.
+    A job whose own name happens to be numeric (``.../job/2024``) is left
+    alone, since Jenkins build numbers never sit directly under a ``job``
+    segment.
+
+    Returns:
+        The job-level URL, with any trailing build-number segment removed.
+    """
+    stripped = job_url.rstrip("/")
+    match = _TRAILING_BUILD_NUMBER_RE.search(stripped)
+    if not match:
+        return stripped
+    before = stripped[: match.start()]
+    if before.endswith("/job"):
+        return stripped
+    return before
 
 
 def _fetch_job_json(job_url: str) -> Dict[str, Any]:
@@ -52,6 +84,8 @@ def _status_from_job_json(data: Dict[str, Any]) -> (Status, str, Optional[int]):
         return Status.SUCCESS, "Last build succeeded", build_number
     if color in ("red", "yellow"):
         return Status.FAILURE, "Last build failed or unstable", build_number
+    if color == "aborted":
+        return Status.FAILURE, "Last build aborted", build_number
     if color == "notbuilt":
         return Status.IDLE, "Never built", build_number
     if color == "disabled":
@@ -71,14 +105,23 @@ class JenkinsWatcher(Watcher):
         watcher_id: Optional[str] = None,
         label: str = "",
         last_build_number: Optional[int] = None,
+        acknowledged_build_number: Optional[int] = None,
     ):
         """Initialize a Jenkins watcher for the given job URL."""
-        self.job_url = job_url.rstrip("/")
+        self.job_url = _normalize_job_url(job_url)
         super().__init__(watcher_id=watcher_id, label=label)
-        # The last build number we've already notified about; None means
-        # "we haven't checked yet" so the very first check never notifies.
+        # The last completed build number we've seen, used to detect a
+        # genuinely new completion.
         self.last_build_number = last_build_number
-        self._has_checked = last_build_number is not None
+        # The last completed build number the user has acknowledged (e.g. by
+        # clicking the row). A completed build whose number doesn't match
+        # this is "unacknowledged" and keeps notifying/highlighting across
+        # app restarts until the user acknowledges it.
+        self.acknowledged_build_number = acknowledged_build_number
+        # In-memory only: whether this watcher has completed at least one
+        # check() since the app started, used to re-alert once per restart
+        # for a completion that's still unacknowledged.
+        self._checked_since_start = False
 
     def default_label(self) -> str:
         """
@@ -107,28 +150,40 @@ class JenkinsWatcher(Watcher):
 
         status, detail, build_number = _status_from_job_json(data)
 
-        newly_actionable = False
-        if (
+        unacknowledged = (
             status.is_actionable
-            and self._has_checked
             and build_number is not None
-            and build_number != self.last_build_number
-        ):
-            newly_actionable = True
+            and build_number != self.acknowledged_build_number
+        )
+        # Notify when a build newly completes (build_number advanced), or -
+        # on the first poll since the app started - when a completion from a
+        # prior run is still unacknowledged, so restarting re-alerts instead
+        # of staying silent forever.
+        newly_actionable = unacknowledged and (
+            build_number != self.last_build_number or not self._checked_since_start
+        )
+        self._checked_since_start = True
 
         if build_number is not None and status != Status.BUILDING:
             # Only "commit" the build number once the build has finished, so
             # we don't miss a transition if we happen to poll mid-build.
             self.last_build_number = build_number
-        self._has_checked = True
 
         self.last_status = status
         self.last_detail = detail
-        return CheckResult(status=status, detail=detail, newly_actionable=newly_actionable)
+        self.unacknowledged = unacknowledged
+        return CheckResult(
+            status=status, detail=detail, newly_actionable=newly_actionable, unacknowledged=unacknowledged
+        )
+
+    def acknowledge(self) -> None:
+        """Mark the current completed build as seen, clearing the unacknowledged state."""
+        self.acknowledged_build_number = self.last_build_number
+        self.unacknowledged = False
 
     def to_config(self) -> Dict[str, Any]:
         """
-        Serialize this watcher's URL, id, label, and last build number.
+        Serialize this watcher's URL, id, label, and build-tracking state.
 
         Returns:
             A dict suitable for JSON config storage.
@@ -139,6 +194,7 @@ class JenkinsWatcher(Watcher):
             "label": self.label,
             "job_url": self.job_url,
             "last_build_number": self.last_build_number,
+            "acknowledged_build_number": self.acknowledged_build_number,
         }
 
     @classmethod
@@ -154,4 +210,5 @@ class JenkinsWatcher(Watcher):
             watcher_id=data.get("id"),
             label=data.get("label", ""),
             last_build_number=data.get("last_build_number"),
+            acknowledged_build_number=data.get("acknowledged_build_number"),
         )

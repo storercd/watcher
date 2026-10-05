@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from watcher.core.base import Status
-from watcher.watchers.jenkins import JenkinsWatcher, _status_from_job_json
+from watcher.watchers.jenkins import JenkinsWatcher, _normalize_job_url, _status_from_job_json
 
 
 def _job_json(color: str, build_number: int = None) -> dict:
@@ -60,10 +60,50 @@ class TestStatusFromJobJson:
         status, _detail, _num = _status_from_job_json(_job_json("disabled"))
         assert status == Status.IDLE
 
+    def test_aborted_is_failure(self):
+        """An aborted build is treated as a failure so it's flagged for attention."""
+        status, _detail, _num = _status_from_job_json(_job_json("aborted", 5))
+        assert status == Status.FAILURE
+
     def test_unknown_color(self):
         """An unrecognized job color falls back to unknown status."""
-        status, _detail, _num = _status_from_job_json(_job_json("aborted_anime".replace("_anime", "")))
+        status, _detail, _num = _status_from_job_json(_job_json("mystery-color"))
         assert status == Status.UNKNOWN
+
+
+class TestNormalizeJobUrl:
+    """Tests for ``_normalize_job_url``'s build-number stripping."""
+
+    def test_strips_trailing_build_number(self):
+        """A trailing build number is stripped from the job URL."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job/645")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_strips_trailing_build_number_with_trailing_slash(self):
+        """A trailing build number is stripped even with a trailing slash."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job/645/")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_leaves_job_level_url_unchanged(self):
+        """A URL that already points at the job itself is left unchanged."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_does_not_strip_numeric_job_name_segment(self):
+        """A numeric job name is not mistaken for a trailing build number."""
+        # A job name that is itself numeric (e.g. "job/2024") should survive,
+        # since we can't tell it apart from a build number by string alone;
+        # this mirrors Jenkins' own ambiguity here and is an accepted edge case.
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/2024")
+            == "http://jenkins.example.com/job/2024"
+        )
 
 
 class TestJenkinsWatcherCheck:
@@ -79,27 +119,61 @@ class TestJenkinsWatcherCheck:
         return JenkinsWatcher(job_url=job_url)
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
-    def test_first_check_never_notifies(self, mock_fetch):
-        """The very first check establishes a baseline without notifying."""
+    def test_first_check_notifies_when_unacknowledged(self, mock_fetch):
+        """
+        The first check notifies if the completed build is unacknowledged.
+
+        This matters when the app restarts: a previously-completed build the
+        user never clicked on should alert again, not go silent forever.
+        """
         mock_fetch.return_value = _job_json("blue", 10)
         watcher = self._make_watcher()
 
         result = watcher.check()
 
         assert result.status == Status.SUCCESS
-        assert result.newly_actionable is False
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
         assert watcher.last_build_number == 10
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
-    def test_same_build_number_does_not_renotify(self, mock_fetch):
+    def test_same_build_number_does_not_renotify_within_a_run(self, mock_fetch):
         """Polling again with the same build number does not re-notify."""
         mock_fetch.return_value = _job_json("blue", 10)
         watcher = self._make_watcher()
-        watcher.check()  # first check establishes baseline
+        watcher.check()  # first check establishes baseline and notifies
 
-        result = watcher.check()  # second poll, same build
+        result = watcher.check()  # second poll, same build, same run
 
         assert result.newly_actionable is False
+        assert result.unacknowledged is True  # still pending acknowledgment
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_restart_renotifies_if_still_unacknowledged(self, mock_fetch):
+        """A simulated app restart re-notifies for a completion never acknowledged."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+
+        restarted = JenkinsWatcher.from_config(watcher.to_config())
+        result = restarted.check()
+
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_restart_does_not_renotify_once_acknowledged(self, mock_fetch):
+        """Acknowledging a completion stops it from re-notifying after a restart."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+        watcher.acknowledge()
+
+        restarted = JenkinsWatcher.from_config(watcher.to_config())
+        result = restarted.check()
+
+        assert result.newly_actionable is False
+        assert result.unacknowledged is False
 
     @patch("watcher.watchers.jenkins._fetch_job_json")
     def test_new_completed_build_notifies(self, mock_fetch):
@@ -152,6 +226,7 @@ class TestJenkinsWatcherCheck:
         """A watcher serialized via to_config() can be restored via from_config()."""
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-job", label="My Job")
         watcher.last_build_number = 42
+        watcher.acknowledged_build_number = 41
 
         config = watcher.to_config()
         restored = JenkinsWatcher.from_config(config)
@@ -159,9 +234,33 @@ class TestJenkinsWatcherCheck:
         assert restored.job_url == watcher.job_url
         assert restored.label == watcher.label
         assert restored.last_build_number == 42
+        assert restored.acknowledged_build_number == 41
         assert restored.id == watcher.id
+
+    @patch("watcher.watchers.jenkins._fetch_job_json")
+    def test_acknowledge_clears_unacknowledged_state(self, mock_fetch):
+        """Calling acknowledge() clears the watcher's unacknowledged flag."""
+        mock_fetch.return_value = _job_json("blue", 10)
+        watcher = self._make_watcher()
+        watcher.check()
+        assert watcher.unacknowledged is True
+
+        watcher.acknowledge()
+
+        assert watcher.unacknowledged is False
+        assert watcher.acknowledged_build_number == 10
 
     def test_default_label_from_url(self):
         """The default label is derived from the job URL's trailing path segment."""
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job")
+        assert watcher.label == "my-cool-job"
+
+    def test_build_specific_url_is_normalized_to_job_url(self):
+        """A build-specific URL is normalized to the job-level URL on construction."""
+        # Regression test: pasting the URL of a specific build (e.g. copied
+        # from the browser while viewing that build) must not stick around,
+        # since per-build JSON has no "color"/"lastBuild" and would silently
+        # poll as Status.UNKNOWN forever.
+        watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job/645")
+        assert watcher.job_url == "https://jenkins.example.com/job/my-cool-job"
         assert watcher.label == "my-cool-job"
