@@ -1,7 +1,8 @@
 # Watcher
 
 Watcher is a small, draggable, always-on-top desktop window that watches
-things — Jenkins jobs and GitHub pull request status checks — and notifies
+things — Jenkins jobs, GitHub pull request status checks, and GitHub
+Actions workflow runs — and notifies
 you when they become actionable (e.g. a build finishes or all checks pass).
 
 ## What it does
@@ -12,9 +13,9 @@ you when they become actionable (e.g. a build finishes or all checks pass).
 - Polls each watched item on a background timer (default every 15s) without
   blocking the GUI.
 - Detects state transitions — e.g. a Jenkins job going from *building* to
-  *success*/*failure*, or a GitHub PR's checks going from running to
-  passed/failed — and fires a notification once per newly completed run,
-  not on every poll.
+  *success*/*failure*, a GitHub PR's checks going from running to
+  passed/failed, or a GitHub Actions run completing — and fires a
+  notification once per newly completed run, not on every poll.
 - When a watched item finishes (success, failure, or aborted), its whole row
   turns bright green/red and keeps notifying on every app restart until you
   click the row to acknowledge it — so a finished build can't be missed.
@@ -38,12 +39,16 @@ python3 main.py
 
 From the window:
 
-- Click **+** to add a watcher, then choose **Jenkins Job** or **GitHub PR**.
+- Click **+** to add a watcher, then choose **Jenkins Job**, **GitHub PR**,
+  or **GitHub Actions Run**.
   - Jenkins: enter the job URL (e.g. `https://jenkins.example.com/job/my-job`)
     and an optional label.
   - GitHub PR: enter the PR URL (e.g.
     `https://github.com/owner/repo/pull/123`) and an optional label. This
     uses your existing `gh` CLI login — see below.
+  - GitHub Actions Run: enter the run URL (e.g.
+    `https://github.com/owner/repo/actions/runs/123456`) and an optional
+    label. Also uses your existing `gh` CLI login — see below.
 - Click **−** next to a watcher to remove it.
 - When a row turns green/red, click anywhere on it to acknowledge the
   finished build and clear the highlight.
@@ -54,7 +59,7 @@ The window is unauthenticated/anonymous-access only for Jenkins right now —
 no credentials are sent, so the job must allow anonymous read access to its
 `api/json` endpoint.
 
-### GitHub PR watcher setup
+### GitHub PR / GitHub Actions run watcher setup
 
 GitHub PR watchers poll `gh pr view <pr_url> --json ...` to read the PR's
 status-check rollup (GitHub Actions check runs and/or legacy commit
@@ -75,6 +80,14 @@ already have `gh` access to work out of the box. If `gh` isn't installed or
 isn't authenticated, the watcher row shows an `error` status with the
 underlying `gh` error message as the detail text.
 
+GitHub Actions Run watchers work the same way, but poll `gh run view
+<run_id> --repo owner/repo --json ...` for a single workflow run (the
+whole run, not an individual job within it), reporting `building` while
+the run is queued/in progress, `failure` if it concluded as a failure,
+cancellation, timeout, or similar, and `success` once it completes
+cleanly. Re-running the workflow is detected (via the run's attempt
+number) and notifies again once the new attempt finishes.
+
 ## Project layout
 
 ```
@@ -87,6 +100,7 @@ watcher/
   watchers/
     jenkins.py      # JenkinsWatcher plugin (polls <job_url>/api/json)
     github_pr.py    # GitHubPRWatcher plugin (polls `gh pr view` status checks)
+    github_actions_run.py # GitHubActionsRunWatcher plugin (polls `gh run view`)
   notifiers/
     base.py         # abstract Notifier interface
     macos.py        # MacOSNotifier (osascript "display notification")
@@ -94,11 +108,12 @@ watcher/
     router.py       # NotificationRouter: mode -> notifier(s) dispatch
   gui/
     main_window.py        # the always-on-top window, drag handling, polling loop
-    add_watcher_dialog.py # watcher-type picker + "Add Jenkins/GitHub PR Watcher" dialogs
+    add_watcher_dialog.py # watcher-type picker + per-type "Add ... Watcher" dialogs
 main.py             # entrypoint: python main.py
 tests/
   test_jenkins_watcher.py    # unit tests for Jenkins status + transition logic
   test_github_pr_watcher.py  # unit tests for GitHub PR status + transition logic
+  test_github_actions_run_watcher.py # unit tests for GitHub Actions run status + transition logic
 ```
 
 ## Plugin architecture
@@ -132,8 +147,9 @@ trigger it.
 
 ## Tests and linting
 
-Unit tests cover the Jenkins and GitHub PR polling/state-transition logic
-(HTTP calls and `gh` CLI invocations are mocked, so no network, real Jenkins
+Unit tests cover the Jenkins, GitHub PR, and GitHub Actions run
+polling/state-transition logic (HTTP calls and `gh` CLI invocations are
+mocked, so no network, real Jenkins
 server, or `gh` auth is required to run the tests). Linting is done
 with [ruff](https://docs.astral.sh/ruff/) (style, pyflakes, isort, McCabe
 complexity, and Google-style docstrings — see `pyproject.toml`):
@@ -150,9 +166,11 @@ workflow (`.github/workflows/ci.yml`), across Python 3.9–3.12.
 ## Known limitations / next steps
 
 - Jenkins access is anonymous-only; no credentials/API token support yet.
-- GitHub PR watching requires the `gh` CLI to be installed and authenticated
-  separately (`gh auth login`); Watcher does not manage GitHub credentials
-  itself.
+- GitHub PR and GitHub Actions run watching both require the `gh` CLI to be
+  installed and authenticated separately (`gh auth login`); Watcher does not
+  manage GitHub credentials itself.
+- GitHub Actions Run watchers track the whole run's status, not an
+  individual job within a multi-job run.
 - "Away" mode notifications are a stub (prints a TODO) pending SMS/Slack
   integration.
 - Poll interval is currently a single global value for all watchers
