@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from watcher.core.base import Status
-from watcher.watchers.jenkins import JenkinsWatcher, _status_from_job_json
+from watcher.watchers.jenkins import JenkinsWatcher, _normalize_job_url, _status_from_job_json
 
 
 def _job_json(color: str, build_number: int = None) -> dict:
@@ -64,6 +64,41 @@ class TestStatusFromJobJson:
         """An unrecognized job color falls back to unknown status."""
         status, _detail, _num = _status_from_job_json(_job_json("aborted_anime".replace("_anime", "")))
         assert status == Status.UNKNOWN
+
+
+class TestNormalizeJobUrl:
+    """Tests for ``_normalize_job_url``'s build-number stripping."""
+
+    def test_strips_trailing_build_number(self):
+        """A trailing build number is stripped from the job URL."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job/645")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_strips_trailing_build_number_with_trailing_slash(self):
+        """A trailing build number is stripped even with a trailing slash."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job/645/")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_leaves_job_level_url_unchanged(self):
+        """A URL that already points at the job itself is left unchanged."""
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/my-job")
+            == "http://jenkins.example.com/job/my-job"
+        )
+
+    def test_does_not_strip_numeric_job_name_segment(self):
+        """A numeric job name is not mistaken for a trailing build number."""
+        # A job name that is itself numeric (e.g. "job/2024") should survive,
+        # since we can't tell it apart from a build number by string alone;
+        # this mirrors Jenkins' own ambiguity here and is an accepted edge case.
+        assert (
+            _normalize_job_url("http://jenkins.example.com/job/2024")
+            == "http://jenkins.example.com/job/2024"
+        )
 
 
 class TestJenkinsWatcherCheck:
@@ -164,4 +199,14 @@ class TestJenkinsWatcherCheck:
     def test_default_label_from_url(self):
         """The default label is derived from the job URL's trailing path segment."""
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job")
+        assert watcher.label == "my-cool-job"
+
+    def test_build_specific_url_is_normalized_to_job_url(self):
+        """A build-specific URL is normalized to the job-level URL on construction."""
+        # Regression test: pasting the URL of a specific build (e.g. copied
+        # from the browser while viewing that build) must not stick around,
+        # since per-build JSON has no "color"/"lastBuild" and would silently
+        # poll as Status.UNKNOWN forever.
+        watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job/645")
+        assert watcher.job_url == "https://jenkins.example.com/job/my-cool-job"
         assert watcher.label == "my-cool-job"

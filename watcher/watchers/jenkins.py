@@ -10,6 +10,7 @@ builds (by tracking the last seen build number) so the scheduler only flags
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
@@ -18,6 +19,36 @@ from watcher.core.base import CheckResult, Status, Watcher
 from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 10
+
+# Matches a trailing build-number segment, e.g. ".../my-job/645" -> ".../my-job".
+# Users sometimes paste the URL of a specific build (copied from the browser
+# while looking at that build) instead of the job itself; a build-level
+# api/json has a completely different shape (no "color"/"lastBuild") so it
+# must be normalized back to the job URL or every check() silently reports
+# Status.UNKNOWN and build completions are never noticed.
+_TRAILING_BUILD_NUMBER_RE = re.compile(r"/\d+$")
+
+
+def _normalize_job_url(job_url: str) -> str:
+    """
+    Strip a trailing build number from ``job_url``, if present.
+
+    A URL like ``.../job/my-job/645`` is normalized to ``.../job/my-job``.
+    A job whose own name happens to be numeric (``.../job/2024``) is left
+    alone, since Jenkins build numbers never sit directly under a ``job``
+    segment.
+
+    Returns:
+        The job-level URL, with any trailing build-number segment removed.
+    """
+    stripped = job_url.rstrip("/")
+    match = _TRAILING_BUILD_NUMBER_RE.search(stripped)
+    if not match:
+        return stripped
+    before = stripped[: match.start()]
+    if before.endswith("/job"):
+        return stripped
+    return before
 
 
 def _fetch_job_json(job_url: str) -> Dict[str, Any]:
@@ -73,7 +104,7 @@ class JenkinsWatcher(Watcher):
         last_build_number: Optional[int] = None,
     ):
         """Initialize a Jenkins watcher for the given job URL."""
-        self.job_url = job_url.rstrip("/")
+        self.job_url = _normalize_job_url(job_url)
         super().__init__(watcher_id=watcher_id, label=label)
         # The last build number we've already notified about; None means
         # "we haven't checked yet" so the very first check never notifies.
