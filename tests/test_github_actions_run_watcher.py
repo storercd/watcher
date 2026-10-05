@@ -146,6 +146,30 @@ class TestGitHubActionsRunWatcherCheck:
         assert result.unacknowledged is False
 
     @patch("watcher.watchers.github_actions_run._run_gh_run_view")
+    def test_forget_acknowledgment_makes_restart_notify_again(self, mock_run):
+        """
+        forget_acknowledgment() makes an already-acknowledged completion notify again.
+
+        Simulates an app restart (reconstructing via to_config()/from_config(),
+        since _checked_since_start is in-memory only) with the "re-notify on
+        restart" setting applying forget_acknowledgment() to the restored watcher.
+        """
+        mock_run.return_value = _run_data("completed", "success", attempt=1)
+        watcher = self._make_watcher()
+        watcher.check()
+        watcher.acknowledge()
+        assert watcher.acknowledged_attempt == 1
+
+        restarted = GitHubActionsRunWatcher.from_config(watcher.to_config())
+        restarted.forget_acknowledgment()
+        assert restarted.acknowledged_attempt is None
+
+        result = restarted.check()
+
+        assert result.newly_actionable is True
+        assert result.unacknowledged is True
+
+    @patch("watcher.watchers.github_actions_run._run_gh_run_view")
     def test_new_attempt_after_rerun_notifies(self, mock_run):
         """A re-run that completes with a new attempt number notifies again."""
         mock_run.return_value = _run_data("completed", "failure", attempt=1)

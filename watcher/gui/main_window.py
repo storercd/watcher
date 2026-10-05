@@ -167,8 +167,14 @@ class MainWindow:
             ntfy_server=self.config.get("ntfy_server", DEFAULT_NTFY_SERVER),
             ntfy_topic=self.config.get("ntfy_topic", ""),
         )
+        self.renotify_on_restart_var = tk.BooleanVar(
+            value=bool(self.config.get("renotify_on_restart", True))
+        )
 
         self._load_watchers_from_config()
+        if self.renotify_on_restart_var.get():
+            for watcher in self.watchers.values():
+                watcher.forget_acknowledgment()
 
         self._build_ui()
         self._make_draggable(self.root)
@@ -493,12 +499,16 @@ class MainWindow:
     # ------------------------------------------------------------------
     def _on_open_settings(self) -> None:
         dialog = SettingsDialog(
-            self.root, ntfy_server=self.router.away_notifier.server, ntfy_topic=self.router.away_notifier.topic
+            self.root,
+            ntfy_server=self.router.away_notifier.server,
+            ntfy_topic=self.router.away_notifier.topic,
+            renotify_on_restart=self.renotify_on_restart_var.get(),
         )
         if not dialog.result:
             return
-        server, topic = dialog.result
+        server, topic, renotify_on_restart = dialog.result
         self.router.configure_away(server=server, topic=topic)
+        self.renotify_on_restart_var.set(renotify_on_restart)
         self._save()
 
     def _on_add_watcher(self) -> None:
@@ -639,6 +649,7 @@ class MainWindow:
         self.config["ntfy_topic"] = self.router.away_notifier.topic
         self.config["poll_interval"] = self.scheduler.poll_interval
         self.config["font_scale"] = self.manual_font_scale
+        self.config["renotify_on_restart"] = self.renotify_on_restart_var.get()
         save_config(self.config)
 
 

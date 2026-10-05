@@ -236,6 +236,10 @@ class GitHubPRWatcher(Watcher):
         self.acknowledged_head_sha = self.last_head_sha
         self.unacknowledged = False
 
+    def forget_acknowledgment(self) -> None:
+        """Clear the acknowledged head SHA so the last resolved commit re-notifies."""
+        self.acknowledged_head_sha = None
+
     def to_config(self) -> Dict[str, Any]:
         """
         Serialize this watcher's URL, id, label, and head-SHA-tracking state.
