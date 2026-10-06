@@ -30,6 +30,28 @@ _FAILING_STATES = {"ERROR", "FAILURE"}
 _PR_URL_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)")
 
 
+def _normalize_pr_url(pr_url: str) -> str:
+    """
+    Rebuild a clean canonical PR URL from whatever was parsed out of it.
+
+    Pasting can leave stray surrounding/duplicated text around the actual
+    URL (e.g. a double-paste); ``_PR_URL_RE.search`` happily ignores that
+    junk when parsing, but storing the raw text as-is means ``display_url``
+    later hands a mangled link to the browser. Falls back to the
+    slash-trimmed raw input if it doesn't match the expected pattern.
+
+    Returns:
+        The canonical ``github.com/<owner>/<repo>/pull/<number>`` URL, or
+        the raw input (with any trailing slash stripped) if it isn't
+        recognized.
+    """
+    stripped = pr_url.rstrip("/")
+    match = _PR_URL_RE.search(stripped)
+    if not match:
+        return stripped
+    return f"https://github.com/{match.group('owner')}/{match.group('repo')}/pull/{match.group('number')}"
+
+
 def _run_gh_pr_view(pr_url: str) -> Dict[str, Any]:
     """
     Run ``gh pr view <pr_url> --json ...`` and parse its JSON output.
@@ -150,7 +172,7 @@ class GitHubPRWatcher(Watcher):
         notes: str = "",
     ):
         """Initialize a GitHub PR watcher for the given PR URL."""
-        self.pr_url = pr_url.rstrip("/")
+        self.pr_url = _normalize_pr_url(pr_url)
         super().__init__(watcher_id=watcher_id, label=label, notes=notes)
         # The head SHA we've last resolved a finished check-run state for.
         self.last_head_sha = last_head_sha
