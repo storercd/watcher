@@ -18,11 +18,10 @@ from typing import Optional, Tuple
 
 def _build_watcher_form(master, dialog, initial_url: str = "", initial_label: str = "", initial_notes: str = ""):
     """
-    Build the shared URL/label/follow-up form fields used by both the add
-    and edit dialogs, pre-filled with the given initial values.
+    Build the shared URL/label/follow-up form fields used by both dialogs.
 
-    Attaches ``url_var``, ``label_var``, and ``notes_text`` to ``dialog`` and
-    returns the widget that should receive initial keyboard focus.
+    Pre-fills the fields with the given initial values, and attaches
+    ``url_var``, ``label_var``, and ``notes_text`` to ``dialog``.
 
     Returns:
         The Entry widget that should receive initial keyboard focus.
@@ -95,8 +94,7 @@ class AddWatcherDialog(simpledialog.Dialog):
 
 
 class EditWatcherDialog(simpledialog.Dialog):
-    """Modal dialog for editing everything about an existing watcher: its
-    watched URL, label, and follow-up note."""
+    """Modal dialog for editing everything about an existing watcher: its watched URL, label, and follow-up note."""
 
     def __init__(self, parent, label: str, initial_url: str = "", initial_notes: str = ""):
         """Initialize dialog state, pre-filling the form with the watcher's current values."""

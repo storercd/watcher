@@ -579,9 +579,13 @@ class MainWindow:
                 label.pack_forget()
 
     def _on_edit_watcher(self, watcher_id: str) -> None:
-        """Open the general "edit watcher" dialog, letting the user change the
-        watched URL, label, and follow-up note - replacing the watcher
-        in-place if the URL (and therefore what's being watched) changed."""
+        """
+        Open the general "edit watcher" dialog.
+
+        Lets the user change the watched URL, label, and follow-up note,
+        replacing the watcher in-place if the URL (and therefore what's
+        being watched) changed.
+        """
         watcher = self.watchers.get(watcher_id)
         if watcher is None:
             return
@@ -621,7 +625,6 @@ class MainWindow:
         self._save()
         if url_changed:
             self.scheduler.poll_once_async()
-
 
     def _on_remove_watcher(self, watcher_id: str) -> None:
         self.watchers.pop(watcher_id, None)
