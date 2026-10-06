@@ -19,7 +19,7 @@ from watcher.core.config import (
 from watcher.core.logging_config import configure_logging
 from watcher.core.registry import detect_watcher_class, get_watcher_class
 from watcher.core.scheduler import Scheduler
-from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditNotesDialog
+from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditFollowUpDialog
 from watcher.gui.settings_dialog import SettingsDialog
 from watcher.notifiers.away import DEFAULT_NTFY_SERVER
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
@@ -428,11 +428,19 @@ class MainWindow:
         detail.pack(side=tk.TOP, fill=tk.X)
         self._register_font(detail, "detail")
 
+        followup_label = tk.Label(
+            info_frame, text="", bg="#2b2b2b", fg="#d9a400",
+            anchor="w", wraplength=320, justify=tk.LEFT, cursor="hand2",
+        )
+        self._register_font(followup_label, "detail")
+        followup_label.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
+
         notes_icon = tk.Label(row, text="📝", bg="#2b2b2b", cursor="hand2")
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         self._register_font(notes_icon, "icon")
         notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
         self._update_notes_icon(notes_icon, watcher.notes)
+        self._update_followup_label(followup_label, detail, watcher.notes)
 
         remove_btn = _make_label_button(
             row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
@@ -448,6 +456,7 @@ class MainWindow:
             "row": row,
             "info_frame": info_frame,
             "notes_icon": notes_icon,
+            "followup_label": followup_label,
         }
 
         # Clicking anywhere on the row (besides the remove/notes buttons)
@@ -543,17 +552,28 @@ class MainWindow:
     def _update_notes_icon(self, icon: tk.Label, notes: str) -> None:
         icon.configure(fg="#d9a400" if notes else "#555555")
 
+    def _update_followup_label(self, label: tk.Label, detail: tk.Label, notes: str) -> None:
+        if notes:
+            label.configure(text=f"↳ {notes}")
+            if not label.winfo_ismapped():
+                label.pack(side=tk.TOP, fill=tk.X, after=detail)
+        else:
+            label.configure(text="")
+            if label.winfo_ismapped():
+                label.pack_forget()
+
     def _on_edit_notes(self, watcher_id: str) -> None:
         watcher = self.watchers.get(watcher_id)
         if watcher is None:
             return
-        dialog = EditNotesDialog(self.root, label=watcher.label, initial_notes=watcher.notes)
+        dialog = EditFollowUpDialog(self.root, label=watcher.label, initial_notes=watcher.notes)
         if dialog.result is None:
             return
         watcher.notes = dialog.result
         widgets = self.row_widgets.get(watcher_id)
         if widgets:
             self._update_notes_icon(widgets["notes_icon"], watcher.notes)
+            self._update_followup_label(widgets["followup_label"], widgets["detail"], watcher.notes)
         self._save()
 
     def _on_remove_watcher(self, watcher_id: str) -> None:

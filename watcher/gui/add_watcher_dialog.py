@@ -5,7 +5,7 @@ Includes a single ``AddWatcherDialog`` that takes one pasted URL and lets
 ``main_window.py`` figure out which ``Watcher`` subclass it belongs to (via
 ``watcher.core.registry.detect_watcher_class``), instead of asking the user
 to pick a watcher type up front. Also includes a dialog for editing a
-watcher's follow-up notes.
+watcher's follow-up action.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class AddWatcherDialog(simpledialog.Dialog):
         tk.Label(master, text="Label (optional):").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         tk.Entry(master, textvariable=self.label_var, width=44).grid(row=1, column=1, padx=4, pady=4)
 
-        tk.Label(master, text="Notes (optional):").grid(row=2, column=0, sticky="nw", padx=4, pady=4)
+        tk.Label(master, text="Follow Up (optional):").grid(row=2, column=0, sticky="nw", padx=4, pady=4)
         self.notes_text = tk.Text(master, width=34, height=3, wrap="word")
         self.notes_text.grid(row=2, column=1, padx=4, pady=4)
 
@@ -74,8 +74,8 @@ class AddWatcherDialog(simpledialog.Dialog):
         self.result = (self.url_var.get().strip(), self.label_var.get().strip(), notes)
 
 
-class EditNotesDialog(simpledialog.Dialog):
-    """Modal dialog for editing the follow-up notes on an existing watcher."""
+class EditFollowUpDialog(simpledialog.Dialog):
+    """Modal dialog for editing the follow-up action on an existing watcher."""
 
     def __init__(self, parent, label: str, initial_notes: str = ""):
         """Initialize dialog state, pre-filling the text box with existing notes."""
@@ -83,7 +83,7 @@ class EditNotesDialog(simpledialog.Dialog):
         self.initial_notes = initial_notes
         self.notes_text: Optional[tk.Text] = None
         self.result: Optional[str] = None
-        super().__init__(parent, title=f"Notes — {label}")
+        super().__init__(parent, title=f"Follow Up — {label}")
 
     def body(self, master):
         """
