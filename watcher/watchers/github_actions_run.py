@@ -136,8 +136,14 @@ class GitHubActionsRunWatcher(Watcher):
         notes: str = "",
     ):
         """Initialize a GitHub Actions run watcher for the given run URL."""
-        self.run_url = run_url.rstrip("/")
-        self.owner, self.repo, self.run_id = _parse_run_url(self.run_url)
+        self.owner, self.repo, self.run_id = _parse_run_url(run_url)
+        # Rebuild a clean canonical URL from the parsed parts rather than
+        # storing the raw pasted text verbatim. Pasting can leave stray
+        # surrounding/duplicated text around the actual URL (e.g. a
+        # double-paste), and _parse_run_url's `search` (not `fullmatch`)
+        # happily ignores that junk - but storing it as-is means
+        # display_url later hands a mangled link to the browser.
+        self.run_url = f"https://github.com/{self.owner}/{self.repo}/actions/runs/{self.run_id}"
         super().__init__(watcher_id=watcher_id, label=label, notes=notes)
         # The attempt number of the last completed run we've seen, used to
         # detect a genuinely new completion (e.g. after a manual re-run).
