@@ -19,7 +19,7 @@ from watcher.core.config import (
 from watcher.core.logging_config import configure_logging
 from watcher.core.registry import detect_watcher_class, get_watcher_class
 from watcher.core.scheduler import Scheduler
-from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditFollowUpDialog
+from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditWatcherDialog
 from watcher.gui.settings_dialog import SettingsDialog
 from watcher.notifiers.away import DEFAULT_NTFY_SERVER
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
@@ -433,12 +433,12 @@ class MainWindow:
             anchor="w", wraplength=320, justify=tk.LEFT, cursor="hand2",
         )
         self._register_font(followup_label, "detail")
-        followup_label.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
+        followup_label.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_watcher(wid))
 
         notes_icon = tk.Label(row, text="📝", bg="#2b2b2b", cursor="hand2")
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         self._register_font(notes_icon, "icon")
-        notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_notes(wid))
+        notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_watcher(wid))
         self._update_notes_icon(notes_icon, watcher.notes)
         self._update_followup_label(followup_label, detail, watcher.notes)
 
@@ -525,22 +525,8 @@ class MainWindow:
         if not dialog.result:
             return
         url, label, notes = dialog.result
-
-        watcher_cls = detect_watcher_class(url)
-        if watcher_cls is None:
-            messagebox.showerror(
-                "Add Watcher",
-                "Could not determine what kind of URL this is.\n\n"
-                "Expected a Jenkins job URL (contains /job/), a GitHub PR URL "
-                "(github.com/owner/repo/pull/123), or a GitHub Actions run URL "
-                "(github.com/owner/repo/actions/runs/123456).",
-            )
-            return
-
-        try:
-            watcher = watcher_cls(url, label=label, notes=notes)
-        except ValueError as exc:
-            messagebox.showerror("Add Watcher", str(exc))
+        watcher = self._construct_watcher(url, label, notes, error_title="Add Watcher")
+        if watcher is None:
             return
 
         self.watchers[watcher.id] = watcher
@@ -548,6 +534,36 @@ class MainWindow:
         self.scheduler.add_watcher(watcher)
         self._save()
         self.scheduler.poll_once_async()
+
+    def _construct_watcher(
+        self, url: str, label: str, notes: str, error_title: str, watcher_id: Optional[str] = None
+    ) -> Optional[Watcher]:
+        """
+        Detect the watcher type for ``url`` and construct a watcher instance.
+
+        Shows an error dialog and returns None if the URL isn't recognized or
+        the watcher type rejects it.
+
+        Returns:
+            The constructed watcher, or None on failure (after showing an
+            error dialog).
+        """
+        watcher_cls = detect_watcher_class(url)
+        if watcher_cls is None:
+            messagebox.showerror(
+                error_title,
+                "Could not determine what kind of URL this is.\n\n"
+                "Expected a Jenkins job URL (contains /job/), a GitHub PR URL "
+                "(github.com/owner/repo/pull/123), or a GitHub Actions run URL "
+                "(github.com/owner/repo/actions/runs/123456).",
+            )
+            return None
+
+        try:
+            return watcher_cls(url, watcher_id=watcher_id, label=label, notes=notes)
+        except ValueError as exc:
+            messagebox.showerror(error_title, str(exc))
+            return None
 
     def _update_notes_icon(self, icon: tk.Label, notes: str) -> None:
         icon.configure(fg="#d9a400" if notes else "#555555")
@@ -562,19 +578,50 @@ class MainWindow:
             if label.winfo_ismapped():
                 label.pack_forget()
 
-    def _on_edit_notes(self, watcher_id: str) -> None:
+    def _on_edit_watcher(self, watcher_id: str) -> None:
+        """Open the general "edit watcher" dialog, letting the user change the
+        watched URL, label, and follow-up note - replacing the watcher
+        in-place if the URL (and therefore what's being watched) changed."""
         watcher = self.watchers.get(watcher_id)
         if watcher is None:
             return
-        dialog = EditFollowUpDialog(self.root, label=watcher.label, initial_notes=watcher.notes)
+        dialog = EditWatcherDialog(
+            self.root, label=watcher.label, initial_url=watcher.display_url or "", initial_notes=watcher.notes
+        )
         if dialog.result is None:
             return
-        watcher.notes = dialog.result
+        url, label, notes = dialog.result
+
+        url_changed = url != (watcher.display_url or "")
+        if url_changed:
+            new_watcher = self._construct_watcher(url, label, notes, error_title="Edit Watcher", watcher_id=watcher_id)
+            if new_watcher is None:
+                return
+            self.watchers[watcher_id] = new_watcher
+            self.scheduler.add_watcher(new_watcher)
+            watcher = new_watcher
+        else:
+            watcher.label = label
+            watcher.notes = notes
+
         widgets = self.row_widgets.get(watcher_id)
         if widgets:
+            widgets["label"].configure(text=watcher.label)
             self._update_notes_icon(widgets["notes_icon"], watcher.notes)
             self._update_followup_label(widgets["followup_label"], widgets["detail"], watcher.notes)
+            if url_changed:
+                # The replaced watcher hasn't been checked yet; reset the row
+                # to its initial "never checked" appearance instead of
+                # leaving stale status from whatever was watched before.
+                widgets["row"].configure(bg=DEFAULT_ROW_BG, cursor="arrow")
+                widgets["info_frame"].configure(bg=DEFAULT_ROW_BG, cursor="arrow")
+                widgets["dot"].configure(fg=STATUS_COLORS[Status.UNKNOWN], bg=DEFAULT_ROW_BG)
+                widgets["label"].configure(bg=DEFAULT_ROW_BG)
+                widgets["detail"].configure(text="unknown · never checked", bg=DEFAULT_ROW_BG, fg="gray")
         self._save()
+        if url_changed:
+            self.scheduler.poll_once_async()
+
 
     def _on_remove_watcher(self, watcher_id: str) -> None:
         self.watchers.pop(watcher_id, None)
