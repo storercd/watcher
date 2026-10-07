@@ -48,6 +48,23 @@ done
 rm -rf "${app_path}"
 mkdir -p "${macos_dir}" "${resources_dir}"
 
+# Kill any already-running instance of this checkout's main.py first. The
+# bundle gets overwritten at the same path every build, but a running
+# process keeps using its already-open (now-unlinked) executable text/
+# launcher script -- rebuilding does NOT replace what a still-running
+# process is executing. Reopening the Dock icon (or double-clicking the
+# app again) while an old instance is alive just reactivates that stale,
+# already-running window instead of starting a fresh one with the new
+# code, which looks exactly like "the rebuild didn't change anything".
+running_pids="$(pgrep -f "${repo_root}/main.py" || true)"
+if [[ -n "${running_pids}" ]]; then
+    echo "Stopping existing Watcher process(es): ${running_pids//$'\n'/, }"
+    while IFS= read -r pid; do
+        [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
+    done <<< "${running_pids}"
+    sleep 1
+fi
+
 cp "${packaging_dir}/Info.plist.template" "${contents_dir}/Info.plist"
 cp "${packaging_dir}/Watcher.icns" "${resources_dir}/Watcher.icns"
 
@@ -65,3 +82,5 @@ echo "Built ${app_path}"
 echo "Using interpreter: ${python_bin}"
 echo
 echo "Drag it to /Applications, or into the Dock, to pin it like any other app."
+echo "Fully quit any already-running Watcher window before relaunching, so you're"
+echo "not looking at a stale instance from before this rebuild."
