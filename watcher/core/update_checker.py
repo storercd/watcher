@@ -22,6 +22,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from watcher.core.net import ssl_context
+
 logger = logging.getLogger("watcher.update_checker")
 
 GITHUB_REPO = "storercd/watcher"
@@ -117,7 +119,7 @@ def fetch_latest_release(
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
             data = json.load(response)
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
         logger.debug("update check request failed: %s", exc)

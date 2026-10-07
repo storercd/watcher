@@ -14,6 +14,7 @@ import logging
 import urllib.error
 import urllib.request
 
+from watcher.core.net import ssl_context
 from watcher.notifiers.base import Notifier
 
 logger = logging.getLogger("watcher.notifiers.away")
@@ -51,7 +52,7 @@ class AwayNotifier(Notifier):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS):
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS, context=ssl_context()):
                 pass
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             print(f"[away-notifier] failed to publish to ntfy topic {topic!r}: {exc}")

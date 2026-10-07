@@ -1,6 +1,13 @@
 # Runtime dependencies: Watcher otherwise uses only the Python stdlib
 # (tkinter, urllib, json, threading, subprocess).
 #
+# certifi: a plain `python3` run verifies HTTPS certs via the trust store the
+# Python.org installer wires up, but a PyInstaller-frozen .app has no access
+# to that (or to the macOS Keychain), so outbound HTTPS (GitHub release
+# checks, ntfy.sh away notifications) fails CERTIFICATE_VERIFY_FAILED unless
+# we hand `ssl` an explicit CA bundle (see watcher/core/net.py).
+certifi>=2024.0.0
+
 # pyobjc-framework-Cocoa is optional and macOS-only: it powers the bouncing
 # Dock icon in watcher/notifiers/macos.py. It's imported lazily and the
 # notifier degrades gracefully (banner + sound only, no bounce) if it's

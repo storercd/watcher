@@ -100,7 +100,7 @@ def test_fetch_latest_release_sends_auth_header_when_token_available():
 
     captured_requests = []
 
-    def _fake_urlopen(request, timeout=None):
+    def _fake_urlopen(request, timeout=None, context=None):
         captured_requests.append(request)
         return _FakeResponse()
 
@@ -131,7 +131,7 @@ def test_fetch_latest_release_omits_auth_header_without_token():
 
     captured_requests = []
 
-    def _fake_urlopen(request, timeout=None):
+    def _fake_urlopen(request, timeout=None, context=None):
         captured_requests.append(request)
         return _FakeResponse()
 
