@@ -250,7 +250,8 @@ class MainWindow:
         self._apply_font_scale()
 
     def _on_reopen_application(self, event: Optional[tk.Event] = None) -> None:
-        """Bring the window to front when the Dock icon is clicked.
+        """
+        Bring the window to front when the Dock icon is clicked.
 
         Toggling ``-topmost`` off then back on (rather than just calling
         ``lift()``) is what actually forces macOS to restack an
