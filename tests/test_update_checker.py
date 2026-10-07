@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 from unittest import mock
 
@@ -76,6 +77,72 @@ def test_fetch_latest_release_returns_none_on_network_error():
     """A network failure is swallowed, not raised."""
     with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")):
         assert fetch_latest_release("owner/repo") is None
+
+
+def test_fetch_latest_release_sends_auth_header_when_token_available():
+    """
+    A token (e.g. from GITHUB_TOKEN or ``gh auth token``) is sent as a Bearer
+    header, since the repo is private and an unauthenticated request 404s.
+    """
+    payload = json.dumps(
+        {"tag_name": "v0.1.47", "html_url": "https://example.com/releases/v0.1.47", "name": "Watcher v0.1.47"}
+    ).encode("utf-8")
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def read(self):
+            return payload
+
+    captured_requests = []
+
+    def _fake_urlopen(request, timeout=None):
+        captured_requests.append(request)
+        return _FakeResponse()
+
+    with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "sekrit"}, clear=False), mock.patch(
+        "urllib.request.urlopen", side_effect=_fake_urlopen
+    ):
+        release = fetch_latest_release("owner/repo")
+
+    assert release is not None
+    assert captured_requests[0].get_header("Authorization") == "Bearer sekrit"
+
+
+def test_fetch_latest_release_omits_auth_header_without_token():
+    """No Authorization header is sent when no token can be found."""
+    payload = json.dumps(
+        {"tag_name": "v0.1.47", "html_url": "https://example.com/releases/v0.1.47", "name": "Watcher v0.1.47"}
+    ).encode("utf-8")
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def read(self):
+            return payload
+
+    captured_requests = []
+
+    def _fake_urlopen(request, timeout=None):
+        captured_requests.append(request)
+        return _FakeResponse()
+
+    env_without_tokens = {k: v for k, v in os.environ.items() if k not in ("GITHUB_TOKEN", "GH_TOKEN")}
+    with mock.patch.dict(os.environ, env_without_tokens, clear=True), mock.patch(
+        "watcher.core.update_checker._get_github_token", return_value=None
+    ), mock.patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        release = fetch_latest_release("owner/repo")
+
+    assert release is not None
+    assert captured_requests[0].get_header("Authorization") is None
 
 
 def test_check_for_update_returns_none_when_not_newer():
