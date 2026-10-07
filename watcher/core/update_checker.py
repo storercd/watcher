@@ -27,7 +27,7 @@ LATEST_RELEASE_URL_TEMPLATE = "https://api.github.com/repos/{repo}/releases/late
 REQUEST_TIMEOUT_SECONDS = 10
 
 # How often to re-check for a new release while the app keeps running.
-DEFAULT_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
+DEFAULT_CHECK_INTERVAL_SECONDS = 60 * 60
 
 
 @dataclass
