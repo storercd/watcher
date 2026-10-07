@@ -181,6 +181,15 @@ class MainWindow:
 
         self.root.bind("<Configure>", self._on_root_configure)
 
+        # On macOS, clicking the Dock icon of an already-running app sends a
+        # "reopen" Apple Event, which Tk/Aqua surfaces as the virtual event
+        # <<ReopenApplication>>. Because our window is frameless
+        # (overrideredirect), macOS sometimes activates the app without
+        # actually restacking this window above whatever else is frontmost.
+        # Explicitly re-raise/focus it so the Dock icon reliably brings the
+        # window to the top instead of appearing to do nothing.
+        self.root.bind("<<ReopenApplication>>", self._on_reopen_application)
+
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
         self.scheduler.poll_once_async()
@@ -239,6 +248,22 @@ class MainWindow:
             return
         self._auto_font_scale = auto_scale
         self._apply_font_scale()
+
+    def _on_reopen_application(self, event: Optional[tk.Event] = None) -> None:
+        """
+        Bring the window to front when the Dock icon is clicked.
+
+        Toggling ``-topmost`` off then back on (rather than just calling
+        ``lift()``) is what actually forces macOS to restack an
+        already-topmost, frameless window above whatever else currently has
+        focus; without it the app activates but the window can stay hidden
+        behind other windows.
+        """
+        self.root.deiconify()
+        self.root.attributes("-topmost", False)
+        self.root.attributes("-topmost", True)
+        self.root.lift()
+        self.root.focus_force()
 
     def _on_zoom(self, delta: float) -> None:
         self.manual_font_scale = _clamp(
