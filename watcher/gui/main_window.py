@@ -190,15 +190,6 @@ class MainWindow:
         # window to the top instead of appearing to do nothing.
         self.root.bind("<<ReopenApplication>>", self._on_reopen_application)
 
-        # Work around a macOS Tk bug where an overrideredirect window launched
-        # via Finder/LaunchServices (as opposed to a Terminal) can be mapped
-        # without ever receiving its initial compositor paint: widgets exist
-        # and respond to clicks, but nothing is drawn until something forces
-        # Cocoa to recomposite. Retry at a few delays since, on a slow first
-        # launch, the NSWindow may not be fully realized at the earliest one.
-        for delay_ms in (75, 300, 800):
-            self.root.after(delay_ms, self._force_initial_repaint)
-
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
         self.scheduler.poll_once_async()
@@ -273,29 +264,6 @@ class MainWindow:
         self.root.attributes("-topmost", True)
         self.root.lift()
         self.root.focus_force()
-
-    def _force_initial_repaint(self) -> None:
-        """
-        Force Tk's first real paint on macOS when launched via Finder/open.
-
-        An overrideredirect window created this way can end up mapped with
-        all its widgets live (clickable, correctly laid out) but never
-        actually painted - the content area just stays whatever blank color
-        the window server initialized it to, and even a manual resize by
-        the user doesn't trigger a repaint (a plain geometry nudge from code
-        doesn't either). Toggling window opacity does: it forces Cocoa to
-        recomposite the window's backing layer from scratch, which a resize
-        alone does not guarantee. Retried a few times since, on a slow
-        first launch, the NSWindow may not be fully realized yet at the
-        first attempt.
-        """
-        try:
-            self.root.attributes("-alpha", 0.0)
-            self.root.update_idletasks()
-            self.root.attributes("-alpha", 1.0)
-            self.root.update_idletasks()
-        except tk.TclError:
-            pass
 
     def _on_zoom(self, delta: float) -> None:
         self.manual_font_scale = _clamp(
