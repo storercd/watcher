@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import time
 import tkinter as tk
@@ -10,6 +11,7 @@ import webbrowser
 from tkinter import messagebox, ttk
 from typing import Dict, Optional
 
+from watcher import __full_version__
 from watcher.core.base import CheckResult, Status, Watcher
 from watcher.core.config import (
     load_config,
@@ -19,6 +21,7 @@ from watcher.core.config import (
 from watcher.core.logging_config import configure_logging
 from watcher.core.registry import detect_watcher_class, get_watcher_class
 from watcher.core.scheduler import Scheduler
+from watcher.core.update_checker import ReleaseInfo, UpdateChecker
 from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditWatcherDialog
 from watcher.gui.settings_dialog import SettingsDialog
 from watcher.notifiers.away import DEFAULT_NTFY_SERVER
@@ -69,6 +72,11 @@ QUEUE_POLL_MS = 500
 # first fired; this catches the user switching away afterward without
 # acknowledging.
 NUDGE_INTERVAL_MS = 5000
+
+# How often to check the UpdateChecker's result queue for a newly-found
+# release. Deliberately coarse since new releases are rare; this is just
+# polling a queue, not making a network call itself.
+UPDATE_QUEUE_POLL_MS = 5000
 
 # Base (scale=1.0) font sizes, bumped up from the original cramped defaults
 # for readability. Actual widget fonts are computed by scaling these - see
@@ -194,8 +202,12 @@ class MainWindow:
         self.scheduler.start()
         self.scheduler.poll_once_async()
 
+        self.update_checker = UpdateChecker(current_version=__full_version__)
+        self.update_checker.start()
+
         self.root.after(QUEUE_POLL_MS, self._drain_results)
         self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
+        self.root.after(UPDATE_QUEUE_POLL_MS, self._poll_update_results)
 
     # ------------------------------------------------------------------
     # Setup
@@ -318,8 +330,28 @@ class MainWindow:
         zoom_out_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(zoom_out_btn, "button")
 
+        # Update-available banner: hidden by default, shown (packed) above
+        # the mode selector by _show_update_banner() when a newer release is
+        # found. Click the text to open the release page; click x to dismiss
+        # it for that specific version (see _on_dismiss_update).
+        self.update_banner = tk.Frame(self.root, bg="#4a4420")
+        self._update_banner_url: Optional[str] = None
+        update_label = tk.Label(
+            self.update_banner, text="", bg="#4a4420", fg="#ffd479", anchor="w", cursor="pointinghand",
+        )
+        update_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8, pady=3)
+        update_label.bind("<Button-1>", lambda _event: self._on_open_update())
+        self._register_font(update_label, "detail")
+        self.update_banner_label = update_label
+        update_dismiss_btn = _make_label_button(
+            self.update_banner, "×", self._on_dismiss_update, bg="#4a4420", hover_bg="#5f5728",
+        )
+        update_dismiss_btn.pack(side=tk.RIGHT, padx=4)
+        self._register_font(update_dismiss_btn, "button")
+
         # Mode selector.
-        mode_frame = tk.Frame(self.root, bg="#1e1e1e")
+        self.mode_frame = tk.Frame(self.root, bg="#1e1e1e")
+        mode_frame = self.mode_frame
         mode_frame.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(6, 0))
         mode_text_label = tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white")
         mode_text_label.pack(side=tk.LEFT)
@@ -681,8 +713,19 @@ class MainWindow:
 
     def _on_close(self) -> None:
         self.scheduler.stop()
+        self.update_checker.stop()
         self._save()
         self.root.destroy()
+        logger.info("Watcher shut down")
+        # Signals, rather than waits for, the scheduler/update-checker
+        # daemon threads above - one of them may still be blocked inside a
+        # network call (urllib/ssl) when the user closes the window. Falling
+        # through to normal interpreter shutdown in that case can segfault
+        # (Python finalizing state out from under a thread stuck in a C
+        # extension's blocking I/O). os._exit() tears the process down
+        # immediately at the OS level instead, skipping that finalization -
+        # safe here since config is already saved above.
+        os._exit(0)
 
     # ------------------------------------------------------------------
     # Scheduler queue draining (runs on the Tk main loop thread)
@@ -737,6 +780,36 @@ class MainWindow:
         finally:
             self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
 
+    def _poll_update_results(self) -> None:
+        """Drain UpdateChecker.results (populated on a background thread) onto the GUI."""
+        try:
+            release = self.update_checker.results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self._show_update_banner(release)
+        finally:
+            self.root.after(UPDATE_QUEUE_POLL_MS, self._poll_update_results)
+
+    def _show_update_banner(self, release: ReleaseInfo) -> None:
+        if release.version == self.config.get("update_dismissed_version"):
+            logger.debug("update %s found but already dismissed by the user", release.version)
+            return
+        logger.info("update available: %s", release.version)
+        self._update_banner_url = release.html_url
+        self._update_banner_version = release.version
+        self.update_banner_label.configure(text=f"⬆ Watcher {release.version} available — click to download")
+        self.update_banner.pack(side=tk.TOP, fill=tk.X, before=self.mode_frame)
+
+    def _on_open_update(self) -> None:
+        if self._update_banner_url:
+            webbrowser.open(self._update_banner_url)
+
+    def _on_dismiss_update(self) -> None:
+        self.update_banner.pack_forget()
+        self.config["update_dismissed_version"] = getattr(self, "_update_banner_version", None)
+        self._save()
+
     def _save(self) -> None:
         self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
         self.config["mode"] = self.router.mode
@@ -754,5 +827,7 @@ def run() -> None:
     logger.info("Watcher starting up")
     root = tk.Tk()
     MainWindow(root)
+    # _on_close() logs shutdown and calls os._exit() itself (see its
+    # docstring/comment) rather than letting mainloop() return normally, so
+    # there's deliberately no post-mainloop code here.
     root.mainloop()
-    logger.info("Watcher shut down")

@@ -1,0 +1,72 @@
+name: Release
+
+# Builds and publishes Watcher.app for every merge to main, so there's
+# always a current "latest good build" on the Releases page for end users
+# to download - no manual version bump required. The version embedded in
+# the build is "<base __version__>.<commit count>" (see
+# scripts/build_macos_app.sh), which is what the app's own in-app update
+# checker compares against, so a plain merge is always detectable as an
+# update even when __version__ itself didn't change.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is required: the build number is the commit count.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint and test
+        run: |
+          ruff check .
+          pytest -v
+
+      - name: Compute release version
+        id: version
+        run: |
+          base_version="$(python -c "import watcher; print(watcher.__version__)")"
+          build_number="$(git rev-list --count HEAD)"
+          full_version="${base_version}.${build_number}"
+          echo "full_version=${full_version}" >> "$GITHUB_OUTPUT"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Watcher.app
+        env:
+          WATCHER_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: ./scripts/build_macos_app.sh
+
+      - name: Zip app bundle
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/Watcher.app "Watcher-${{ steps.version.outputs.full_version }}-macos.zip"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.full_version }}
+          name: Watcher v${{ steps.version.outputs.full_version }}
+          files: Watcher-${{ steps.version.outputs.full_version }}-macos.zip
+          # Unsigned/unnotarized build (see README): first launch needs a
+          # right-click -> Open, or users will see a Gatekeeper warning.
+          body: |
+            Unsigned build — first launch requires right-click → Open (see README "Installing" section).
+
+            Build ${{ steps.version.outputs.build_number }} from commit ${{ github.sha }}.
