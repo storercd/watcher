@@ -190,6 +190,14 @@ class MainWindow:
         # window to the top instead of appearing to do nothing.
         self.root.bind("<<ReopenApplication>>", self._on_reopen_application)
 
+        # Work around a macOS Tk bug where an overrideredirect window launched
+        # via Finder/LaunchServices (as opposed to a Terminal) can be mapped
+        # without ever receiving its initial compositor paint: widgets exist
+        # and respond to clicks, but nothing is drawn until something forces
+        # a resize. Nudge the window size by a pixel and back shortly after
+        # startup to force that first real paint.
+        self.root.after(75, self._force_initial_repaint)
+
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
         self.scheduler.poll_once_async()
@@ -264,6 +272,27 @@ class MainWindow:
         self.root.attributes("-topmost", True)
         self.root.lift()
         self.root.focus_force()
+
+    def _force_initial_repaint(self) -> None:
+        """
+        Force Tk's first real paint on macOS when launched via Finder/open.
+
+        An overrideredirect window created this way can end up mapped with
+        all its widgets live (clickable, correctly laid out) but never
+        actually painted - the content area just stays whatever blank color
+        the window server initialized it to. Toggling the geometry by a
+        pixel forces a resize, which reliably triggers a full repaint.
+        """
+        geometry = self.root.geometry()  # e.g. "640x480+100+100"
+        size, _, position = geometry.partition("+")
+        width, _, height = size.partition("x")
+        try:
+            width, height = int(width), int(height)
+        except ValueError:
+            return
+        self.root.geometry(f"{width + 1}x{height}+{position}")
+        self.root.update_idletasks()
+        self.root.geometry(f"{width}x{height}+{position}")
 
     def _on_zoom(self, delta: float) -> None:
         self.manual_font_scale = _clamp(
