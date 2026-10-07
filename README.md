@@ -39,10 +39,18 @@ current "latest good build", no manual release step needed.
 1. Download `Watcher-<version>-macos.zip` from the
    [latest release](../../releases/latest) and unzip it.
 2. Drag `Watcher.app` to `/Applications` (or the Dock).
-3. **First launch only:** right-click `Watcher.app` → **Open** → **Open**.
-   These builds aren't Apple-notarized (no paid Apple Developer account), so
-   a plain double-click gets blocked by Gatekeeper the first time. After
-   that one-time step, it opens normally.
+3. **First launch only:** these builds aren't Apple-notarized (no paid Apple
+   Developer account), so downloading via a browser leaves a quarantine flag
+   that makes Gatekeeper refuse to open it, reporting it as **"damaged"**
+   rather than the more familiar "unidentified developer" warning —
+   right-click → Open does *not* help with this particular dialog. Instead,
+   clear the quarantine flag once from Terminal:
+
+   ```bash
+   xattr -cr /Applications/Watcher.app   # or wherever you dragged it
+   ```
+
+   After that one-time step, it opens normally (including from the Dock).
 
 **Getting notified of updates:** Watcher checks GitHub for a newer release
 shortly after it starts (and periodically while it keeps running) and shows
