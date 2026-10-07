@@ -365,14 +365,24 @@ class MainWindow:
         mode_text_label.pack(side=tk.LEFT)
         self._register_font(mode_text_label, "body")
         self.mode_var = tk.StringVar(value=self.router.mode)
-        self._combobox_style = ttk.Style()
-        self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
-        mode_menu = ttk.Combobox(
-            mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
-            width=10, style="Watcher.TCombobox",
-        )
+        # Diagnostic escape hatch: ttk widgets (unlike plain tk ones) go
+        # through macOS's native "Aqua" theme engine, a different rendering
+        # path from the rest of this window's plain-tk widgets. WATCHER_NO_TTK
+        # swaps the ttk.Combobox below for a plain tk.OptionMenu to help
+        # narrow down whether ttk/Aqua theming is implicated in the
+        # Finder-launch blank-window bug.
+        if os.environ.get("WATCHER_NO_TTK"):
+            mode_menu = tk.OptionMenu(mode_frame, self.mode_var, *MODES, command=self._on_mode_change)
+            mode_menu.configure(bg="#2b2b2b", fg="white", highlightthickness=0, width=8)
+        else:
+            self._combobox_style = ttk.Style()
+            self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
+            mode_menu = ttk.Combobox(
+                mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
+                width=10, style="Watcher.TCombobox",
+            )
+            mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
         mode_menu.pack(side=tk.LEFT, padx=4)
-        mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
 
         # Scrollable list of watchers.
         list_container = tk.Frame(self.root, bg="#1e1e1e")

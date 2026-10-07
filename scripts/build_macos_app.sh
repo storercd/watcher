@@ -68,15 +68,22 @@ fi
 cp "${packaging_dir}/Info.plist.template" "${contents_dir}/Info.plist"
 cp "${packaging_dir}/Watcher.icns" "${resources_dir}/Watcher.icns"
 
-# If WATCHER_NATIVE_CHROME is set in the environment this script itself is
-# run in, bake it into the launcher so double-clicking/opening the built
-# .app (which doesn't inherit a Terminal's env) also gets it -- useful both
-# to diagnose the overrideredirect repaint bug via the actual app bundle,
-# and as a permanent workaround if that's what it takes.
-native_chrome_export=""
+# If WATCHER_NATIVE_CHROME and/or WATCHER_NO_TTK are set in the environment
+# this script itself is run in, bake them into the launcher so double-
+# clicking/opening the built .app (which doesn't inherit a Terminal's env)
+# also gets them -- useful both to diagnose the blank-window-on-Finder-
+# launch bug via the actual app bundle, and as a permanent workaround if
+# that's what it takes.
+diag_exports=""
 if [[ -n "${WATCHER_NATIVE_CHROME:-}" ]]; then
-    native_chrome_export="export WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME}"
+    diag_exports="${diag_exports}export WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME}
+"
     echo "Baking WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME} into the launcher."
+fi
+if [[ -n "${WATCHER_NO_TTK:-}" ]]; then
+    diag_exports="${diag_exports}export WATCHER_NO_TTK=${WATCHER_NO_TTK}
+"
+    echo "Baking WATCHER_NO_TTK=${WATCHER_NO_TTK} into the launcher."
 fi
 
 cat > "${macos_dir}/Watcher" << LAUNCHER
@@ -84,8 +91,7 @@ cat > "${macos_dir}/Watcher" << LAUNCHER
 # Launches Watcher using the Python checkout at ${repo_root}.
 # Regenerate this file by re-running scripts/build_macos_app.sh if the
 # repo moves or you switch virtualenvs.
-${native_chrome_export}
-exec "${python_bin}" "${repo_root}/main.py"
+${diag_exports}exec "${python_bin}" "${repo_root}/main.py"
 LAUNCHER
 
 chmod +x "${macos_dir}/Watcher"
