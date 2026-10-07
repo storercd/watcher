@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import time
 import tkinter as tk
@@ -194,9 +195,10 @@ class MainWindow:
         # via Finder/LaunchServices (as opposed to a Terminal) can be mapped
         # without ever receiving its initial compositor paint: widgets exist
         # and respond to clicks, but nothing is drawn until something forces
-        # a resize. Nudge the window size by a pixel and back shortly after
-        # startup to force that first real paint.
-        self.root.after(75, self._force_initial_repaint)
+        # Cocoa to recomposite. Retry at a few delays since, on a slow first
+        # launch, the NSWindow may not be fully realized at the earliest one.
+        for delay_ms in (75, 300, 800):
+            self.root.after(delay_ms, self._force_initial_repaint)
 
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
@@ -280,19 +282,21 @@ class MainWindow:
         An overrideredirect window created this way can end up mapped with
         all its widgets live (clickable, correctly laid out) but never
         actually painted - the content area just stays whatever blank color
-        the window server initialized it to. Toggling the geometry by a
-        pixel forces a resize, which reliably triggers a full repaint.
+        the window server initialized it to, and even a manual resize by
+        the user doesn't trigger a repaint (a plain geometry nudge from code
+        doesn't either). Toggling window opacity does: it forces Cocoa to
+        recomposite the window's backing layer from scratch, which a resize
+        alone does not guarantee. Retried a few times since, on a slow
+        first launch, the NSWindow may not be fully realized yet at the
+        first attempt.
         """
-        geometry = self.root.geometry()  # e.g. "640x480+100+100"
-        size, _, position = geometry.partition("+")
-        width, _, height = size.partition("x")
         try:
-            width, height = int(width), int(height)
-        except ValueError:
-            return
-        self.root.geometry(f"{width + 1}x{height}+{position}")
-        self.root.update_idletasks()
-        self.root.geometry(f"{width}x{height}+{position}")
+            self.root.attributes("-alpha", 0.0)
+            self.root.update_idletasks()
+            self.root.attributes("-alpha", 1.0)
+            self.root.update_idletasks()
+        except tk.TclError:
+            pass
 
     def _on_zoom(self, delta: float) -> None:
         self.manual_font_scale = _clamp(
@@ -306,7 +310,14 @@ class MainWindow:
         self.root.attributes("-topmost", True)
         self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
-        self.root.overrideredirect(True)  # frameless-ish window
+        # Escape hatch for the macOS "mapped but never painted" Tk bug: if
+        # the repaint nudges in _force_initial_repaint() aren't enough on a
+        # given machine, WATCHER_NATIVE_CHROME=1 keeps the normal OS window
+        # frame (title bar, close/zoom buttons) instead of our custom one,
+        # which doesn't hit this bug and is a usable fallback while we
+        # narrow down the real cause.
+        if not os.environ.get("WATCHER_NATIVE_CHROME"):
+            self.root.overrideredirect(True)  # frameless-ish window
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 
         # Title bar (also the drag handle) with close button and mode selector.
