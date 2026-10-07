@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import re
+import subprocess
 import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
+from watcher.core.net import ssl_context
 
 logger = logging.getLogger("watcher.update_checker")
 
@@ -62,6 +66,44 @@ def is_newer(candidate: str, current: str) -> bool:
     return _parse_version(candidate) > _parse_version(current)
 
 
+def _get_github_token() -> Optional[str]:
+    """
+    Find a GitHub token to authenticate the releases request with.
+
+    ``GITHUB_REPO`` is a private repository, so an unauthenticated request
+    to the releases API gets a 404 (GitHub hides private repos from anonymous
+    callers) rather than the actual release data. Without a token, update
+    checks would silently and permanently find nothing.
+
+    Checks ``GITHUB_TOKEN``/``GH_TOKEN`` first, then falls back to asking the
+    locally installed ``gh`` CLI for its cached auth token.
+
+    Returns:
+        The discovered token, or ``None`` (not raising) if neither source
+        yields one, e.g. ``gh`` isn't installed or the user isn't logged in -
+        the caller then simply makes an unauthenticated request, which still
+        works for a public repo.
+    """
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        return token
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("gh auth token unavailable: %s", exc)
+        return None
+    if result.returncode != 0:
+        return None
+    token = result.stdout.strip()
+    return token or None
+
+
 def fetch_latest_release(
     repo: str = GITHUB_REPO, timeout: float = REQUEST_TIMEOUT_SECONDS
 ) -> Optional[ReleaseInfo]:
@@ -74,9 +116,13 @@ def fetch_latest_release(
         404) - a failed check is silent, never surfaced as an error.
     """
     url = LATEST_RELEASE_URL_TEMPLATE.format(repo=repo)
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    headers = {"Accept": "application/vnd.github+json"}
+    token = _get_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
             data = json.load(response)
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
         logger.debug("update check request failed: %s", exc)
