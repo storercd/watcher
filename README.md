@@ -44,19 +44,20 @@ python3 main.py
 
 Running `python3 main.py` directly gives Watcher the generic Python rocket
 icon and no stable Dock/app identity, so it can't be pinned. To fix that
-without leaving Python, build a thin `Watcher.app` wrapper that still just
-runs this checkout's `main.py`:
+without leaving Python, build a self-contained `Watcher.app` with
+[PyInstaller](https://pyinstaller.org/) (installed via `requirements.txt`):
 
 ```bash
+pip install -r requirements.txt   # installs PyInstaller, among other deps
 ./scripts/build_macos_app.sh            # builds dist/Watcher.app
 ./scripts/build_macos_app.sh ~/Applications   # or build straight into /Applications
 ```
 
 Then drag `Watcher.app` into the Dock (or `/Applications`) like any other
-app. It uses a project-local `.venv`/`venv` interpreter if one exists,
-otherwise `python3` on `PATH`. Re-run the script if you move the repo or
-switch interpreters. See `packaging/macos/` for the bundle's `Info.plist`
-and icon.
+app. The build uses a project-local `.venv`/`venv` interpreter if one
+exists, otherwise `python3` on `PATH`. Re-run the script after any code
+change, or if you move the repo or switch interpreters. See
+`packaging/macos/Watcher.icns` for the bundled icon.
 
 From the window:
 

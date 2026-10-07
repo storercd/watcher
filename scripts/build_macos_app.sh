@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 #
-# Builds Watcher.app, a thin macOS app bundle that launches the existing
-# Python/tkinter Watcher program. No compilation or freezing happens here:
-# the bundle just gives Watcher its own Dock icon, name, and app identity
-# (instead of the generic Python "rocket") so it can be pinned to the Dock
-# or kept in /Applications, while the app itself keeps running as plain
-# Python from this repo checkout.
+# Builds Watcher.app using PyInstaller: a self-contained macOS app bundle
+# (with its own icon and identity, instead of the generic Python "rocket")
+# that can be pinned to the Dock or kept in /Applications.
+#
+# An earlier version of this script built a hand-rolled bundle that just
+# exec'd the system python3 from a launcher script. That approach hit an
+# unresolved machine-specific Tk/Cocoa rendering bug when launched via
+# Finder/the Dock (widgets existed and responded to clicks but nothing was
+# painted). PyInstaller sidesteps it by embedding a proper, self-contained
+# Python runtime as a correctly structured, signed app bundle rather than
+# re-executing the system interpreter from a script.
 #
 # Usage:
 #   ./scripts/build_macos_app.sh [destination-dir]
@@ -23,20 +28,14 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
-packaging_dir="${repo_root}/packaging/macos"
+icon_path="${repo_root}/packaging/macos/Watcher.icns"
 
 dest_arg="${1:-"${repo_root}/dist"}"
 mkdir -p "${dest_arg}"
 dest_dir="$(cd "${dest_arg}" && pwd)"
 
-app_path="${dest_dir}/Watcher.app"
-contents_dir="${app_path}/Contents"
-macos_dir="${contents_dir}/MacOS"
-resources_dir="${contents_dir}/Resources"
-
-# Prefer a project-local virtualenv's interpreter if one exists, since that's
-# where pyobjc-framework-Cocoa (needed for the bouncing Dock notification)
-# would be installed. Fall back to python3 on PATH otherwise.
+# Prefer a project-local virtualenv's interpreter/pyinstaller if one exists.
+# Fall back to whatever's on PATH otherwise.
 python_bin="python3"
 for venv_candidate in "${repo_root}/.venv/bin/python3" "${repo_root}/venv/bin/python3"; do
     if [[ -x "${venv_candidate}" ]]; then
@@ -45,18 +44,21 @@ for venv_candidate in "${repo_root}/.venv/bin/python3" "${repo_root}/venv/bin/py
     fi
 done
 
-rm -rf "${app_path}"
-mkdir -p "${macos_dir}" "${resources_dir}"
+if ! "${python_bin}" -m PyInstaller --version >/dev/null 2>&1; then
+    echo "error: PyInstaller is not installed for ${python_bin}." >&2
+    echo "       Install it with: ${python_bin} -m pip install pyinstaller" >&2
+    exit 1
+fi
 
-# Kill any already-running instance of this checkout's main.py first. The
-# bundle gets overwritten at the same path every build, but a running
-# process keeps using its already-open (now-unlinked) executable text/
-# launcher script -- rebuilding does NOT replace what a still-running
-# process is executing. Reopening the Dock icon (or double-clicking the
-# app again) while an old instance is alive just reactivates that stale,
-# already-running window instead of starting a fresh one with the new
-# code, which looks exactly like "the rebuild didn't change anything".
-running_pids="$(pgrep -f "${repo_root}/main.py" || true)"
+# Kill any already-running instance first. PyInstaller builds into a fresh
+# ./build and ./dist each run, but a still-running process keeps using its
+# already-open (now-unlinked) executable -- rebuilding does NOT replace what
+# a running process is executing. Reopening the Dock icon (or double-
+# clicking the app again) while an old instance is alive just reactivates
+# that stale, already-running window instead of starting a fresh one with
+# the new code, which looks exactly like "the rebuild didn't change
+# anything".
+running_pids="$(pgrep -f "${dest_dir}/Watcher.app/Contents/MacOS/Watcher" || true)"
 if [[ -n "${running_pids}" ]]; then
     echo "Stopping existing Watcher process(es): ${running_pids//$'\n'/, }"
     while IFS= read -r pid; do
@@ -65,40 +67,23 @@ if [[ -n "${running_pids}" ]]; then
     sleep 1
 fi
 
-cp "${packaging_dir}/Info.plist.template" "${contents_dir}/Info.plist"
-cp "${packaging_dir}/Watcher.icns" "${resources_dir}/Watcher.icns"
+work_dir="${repo_root}/build/pyinstaller"
+spec_dir="${repo_root}/build"
+rm -rf "${dest_dir}/Watcher.app" "${work_dir}"
 
-# If WATCHER_NATIVE_CHROME and/or WATCHER_NO_TTK are set in the environment
-# this script itself is run in, bake them into the launcher so double-
-# clicking/opening the built .app (which doesn't inherit a Terminal's env)
-# also gets them -- useful both to diagnose the blank-window-on-Finder-
-# launch bug via the actual app bundle, and as a permanent workaround if
-# that's what it takes.
-diag_exports=""
-if [[ -n "${WATCHER_NATIVE_CHROME:-}" ]]; then
-    diag_exports="${diag_exports}export WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME}
-"
-    echo "Baking WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME} into the launcher."
-fi
-if [[ -n "${WATCHER_NO_TTK:-}" ]]; then
-    diag_exports="${diag_exports}export WATCHER_NO_TTK=${WATCHER_NO_TTK}
-"
-    echo "Baking WATCHER_NO_TTK=${WATCHER_NO_TTK} into the launcher."
-fi
+"${python_bin}" -m PyInstaller \
+    --windowed \
+    --noconsole \
+    --name=Watcher \
+    --icon="${icon_path}" \
+    --distpath="${dest_dir}" \
+    --workpath="${work_dir}" \
+    --specpath="${spec_dir}" \
+    --noconfirm \
+    "${repo_root}/main.py"
 
-cat > "${macos_dir}/Watcher" << LAUNCHER
-#!/usr/bin/env bash
-# Launches Watcher using the Python checkout at ${repo_root}.
-# Regenerate this file by re-running scripts/build_macos_app.sh if the
-# repo moves or you switch virtualenvs.
-${diag_exports}exec "${python_bin}" "${repo_root}/main.py"
-LAUNCHER
-
-chmod +x "${macos_dir}/Watcher"
-
-echo "Built ${app_path}"
-echo "Using interpreter: ${python_bin}"
 echo
+echo "Built ${dest_dir}/Watcher.app"
 echo "Drag it to /Applications, or into the Dock, to pin it like any other app."
 echo "Fully quit any already-running Watcher window before relaunching, so you're"
 echo "not looking at a stale instance from before this rebuild."

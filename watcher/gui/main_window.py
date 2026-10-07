@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import queue
 import time
 import tkinter as tk
@@ -310,14 +309,7 @@ class MainWindow:
         self.root.attributes("-topmost", True)
         self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
-        # Escape hatch for the macOS "mapped but never painted" Tk bug: if
-        # the repaint nudges in _force_initial_repaint() aren't enough on a
-        # given machine, WATCHER_NATIVE_CHROME=1 keeps the normal OS window
-        # frame (title bar, close/zoom buttons) instead of our custom one,
-        # which doesn't hit this bug and is a usable fallback while we
-        # narrow down the real cause.
-        if not os.environ.get("WATCHER_NATIVE_CHROME"):
-            self.root.overrideredirect(True)  # frameless-ish window
+        self.root.overrideredirect(True)  # frameless-ish window
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 
         # Title bar (also the drag handle) with close button and mode selector.
@@ -365,23 +357,13 @@ class MainWindow:
         mode_text_label.pack(side=tk.LEFT)
         self._register_font(mode_text_label, "body")
         self.mode_var = tk.StringVar(value=self.router.mode)
-        # Diagnostic escape hatch: ttk widgets (unlike plain tk ones) go
-        # through macOS's native "Aqua" theme engine, a different rendering
-        # path from the rest of this window's plain-tk widgets. WATCHER_NO_TTK
-        # swaps the ttk.Combobox below for a plain tk.OptionMenu to help
-        # narrow down whether ttk/Aqua theming is implicated in the
-        # Finder-launch blank-window bug.
-        if os.environ.get("WATCHER_NO_TTK"):
-            mode_menu = tk.OptionMenu(mode_frame, self.mode_var, *MODES, command=self._on_mode_change)
-            mode_menu.configure(bg="#2b2b2b", fg="white", highlightthickness=0, width=8)
-        else:
-            self._combobox_style = ttk.Style()
-            self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
-            mode_menu = ttk.Combobox(
-                mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
-                width=10, style="Watcher.TCombobox",
-            )
-            mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
+        self._combobox_style = ttk.Style()
+        self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
+        mode_menu = ttk.Combobox(
+            mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
+            width=10, style="Watcher.TCombobox",
+        )
+        mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
         mode_menu.pack(side=tk.LEFT, padx=4)
 
         # Scrollable list of watchers.
