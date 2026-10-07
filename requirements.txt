@@ -10,3 +10,8 @@ pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
 # Dev/test dependencies:
 pytest>=7.0
 ruff>=0.16
+
+# Build dependency: used by scripts/build_macos_app.sh to package Watcher as
+# a standalone .app bundle (so it can be pinned to the macOS Dock with its
+# own icon instead of a generic Python rocket).
+pyinstaller>=6.0; sys_platform == "darwin"

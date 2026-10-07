@@ -331,8 +331,8 @@ class MainWindow:
             mode_frame, textvariable=self.mode_var, values=list(MODES), state="readonly",
             width=10, style="Watcher.TCombobox",
         )
-        mode_menu.pack(side=tk.LEFT, padx=4)
         mode_menu.bind("<<ComboboxSelected>>", self._on_mode_change)
+        mode_menu.pack(side=tk.LEFT, padx=4)
 
         # Scrollable list of watchers.
         list_container = tk.Frame(self.root, bg="#1e1e1e")
