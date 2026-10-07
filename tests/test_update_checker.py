@@ -81,8 +81,9 @@ def test_fetch_latest_release_returns_none_on_network_error():
 
 def test_fetch_latest_release_sends_auth_header_when_token_available():
     """
-    A token (e.g. from GITHUB_TOKEN or ``gh auth token``) is sent as a Bearer
-    header, since the repo is private and an unauthenticated request 404s.
+    A token (e.g. from GITHUB_TOKEN or ``gh auth token``) is sent as a Bearer header.
+
+    This matters since the repo is private and an unauthenticated request 404s.
     """
     payload = json.dumps(
         {"tag_name": "v0.1.47", "html_url": "https://example.com/releases/v0.1.47", "name": "Watcher v0.1.47"}

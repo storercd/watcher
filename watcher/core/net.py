@@ -16,16 +16,12 @@ verification work the same way in the frozen app as in a dev run.
 from __future__ import annotations
 
 import ssl
-from typing import Optional
+from functools import lru_cache
 
 import certifi
 
-_ssl_context: Optional[ssl.SSLContext] = None
 
-
+@lru_cache(maxsize=1)
 def ssl_context() -> ssl.SSLContext:
     """Return a shared SSLContext that verifies against certifi's CA bundle."""
-    global _ssl_context
-    if _ssl_context is None:
-        _ssl_context = ssl.create_default_context(cafile=certifi.where())
-    return _ssl_context
+    return ssl.create_default_context(cafile=certifi.where())

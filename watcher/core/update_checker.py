@@ -76,10 +76,13 @@ def _get_github_token() -> Optional[str]:
     checks would silently and permanently find nothing.
 
     Checks ``GITHUB_TOKEN``/``GH_TOKEN`` first, then falls back to asking the
-    locally installed ``gh`` CLI for its cached auth token. Returns ``None``
-    (not raising) if neither source yields a token, e.g. ``gh`` isn't
-    installed or the user isn't logged in - the caller then simply makes an
-    unauthenticated request, which still works for a public repo.
+    locally installed ``gh`` CLI for its cached auth token.
+
+    Returns:
+        The discovered token, or ``None`` (not raising) if neither source
+        yields one, e.g. ``gh`` isn't installed or the user isn't logged in -
+        the caller then simply makes an unauthenticated request, which still
+        works for a public repo.
     """
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
