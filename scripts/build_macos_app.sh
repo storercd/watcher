@@ -68,11 +68,23 @@ fi
 cp "${packaging_dir}/Info.plist.template" "${contents_dir}/Info.plist"
 cp "${packaging_dir}/Watcher.icns" "${resources_dir}/Watcher.icns"
 
+# If WATCHER_NATIVE_CHROME is set in the environment this script itself is
+# run in, bake it into the launcher so double-clicking/opening the built
+# .app (which doesn't inherit a Terminal's env) also gets it -- useful both
+# to diagnose the overrideredirect repaint bug via the actual app bundle,
+# and as a permanent workaround if that's what it takes.
+native_chrome_export=""
+if [[ -n "${WATCHER_NATIVE_CHROME:-}" ]]; then
+    native_chrome_export="export WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME}"
+    echo "Baking WATCHER_NATIVE_CHROME=${WATCHER_NATIVE_CHROME} into the launcher."
+fi
+
 cat > "${macos_dir}/Watcher" << LAUNCHER
 #!/usr/bin/env bash
 # Launches Watcher using the Python checkout at ${repo_root}.
 # Regenerate this file by re-running scripts/build_macos_app.sh if the
 # repo moves or you switch virtualenvs.
+${native_chrome_export}
 exec "${python_bin}" "${repo_root}/main.py"
 LAUNCHER
 
