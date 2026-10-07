@@ -30,7 +30,36 @@ you when they become actionable (e.g. a build finishes or all checks pass).
 - Saves everything you add to `~/.watcher/config.json` so your watchers
   survive an app restart.
 
+## Installing a pre-built release (recommended)
+
+Every merge to `main` is automatically built and published as a new
+[GitHub Release](../../releases) — the most recent one there is always the
+current "latest good build", no manual release step needed.
+
+1. Download `Watcher-<version>-macos.zip` from the
+   [latest release](../../releases/latest) and unzip it.
+2. Drag `Watcher.app` to `/Applications` (or the Dock).
+3. **First launch only:** right-click `Watcher.app` → **Open** → **Open**.
+   These builds aren't Apple-notarized (no paid Apple Developer account), so
+   a plain double-click gets blocked by Gatekeeper the first time. After
+   that one-time step, it opens normally.
+
+**Getting notified of updates:** Watcher checks GitHub for a newer release
+shortly after it starts (and periodically while it keeps running) and shows
+a small banner at the top of the window if one's available — click it to
+open the release page, or the **×** to dismiss that version. There's no
+silent/automatic install step: download and re-drag the new `.app` into
+`/Applications` the same way as above.
+
+**Versioning:** released builds are versioned `<base>.<build number>` (e.g.
+`0.1.47`), where `<build number>` is the commit count on `main` at build
+time — it increments on every merge automatically, so the update checker
+can tell builds apart even between intentional version bumps. `<base>` is
+bumped by hand in `watcher/__init__.py` only for notable milestones.
+
 ## Running it
+
+If you'd rather run from source (e.g. to make changes):
 
 Requires Python 3.9+ with Tkinter (ships with the standard python.org macOS
 installer and most Linux distro Python packages; on some minimal Linux

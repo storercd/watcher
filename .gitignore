@@ -14,6 +14,10 @@ env/
 dist/
 build/
 
+# Generated at build time by scripts/build_macos_app.sh / the release
+# workflow (embeds the auto-incrementing build number); never hand-edited.
+watcher/_build_version.py
+
 # Local user config (watcher also stores config at ~/.watcher/config.json,
 # outside the repo, but ignore a local override if someone keeps one here)
 config.local.json
