@@ -19,6 +19,7 @@ import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
 from watcher.core.base import CheckResult, Status, Watcher
+from watcher.core.gh_cli import gh_command
 from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 20
@@ -67,7 +68,7 @@ def _run_gh_pr_view(pr_url: str) -> Dict[str, Any]:
     fields = "headRefOid,number,title,state,url,statusCheckRollup"
     try:
         proc = subprocess.run(
-            ["gh", "pr", "view", pr_url, "--json", fields],
+            gh_command("pr", "view", pr_url, "--json", fields),
             capture_output=True,
             text=True,
             timeout=REQUEST_TIMEOUT_SECONDS,
