@@ -19,6 +19,7 @@ import subprocess
 from typing import Any, Dict, Optional, Tuple
 
 from watcher.core.base import CheckResult, Status, Watcher
+from watcher.core.gh_cli import gh_command
 from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 20
@@ -62,7 +63,7 @@ def _run_gh_run_view(owner: str, repo: str, run_id: str) -> Dict[str, Any]:
     fields = "status,conclusion,attempt,workflowName,displayTitle,url"
     try:
         proc = subprocess.run(
-            ["gh", "run", "view", run_id, "--repo", f"{owner}/{repo}", "--json", fields],
+            gh_command("run", "view", run_id, "--repo", f"{owner}/{repo}", "--json", fields),
             capture_output=True,
             text=True,
             timeout=REQUEST_TIMEOUT_SECONDS,

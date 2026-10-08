@@ -22,6 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from watcher.core.gh_cli import gh_command
 from watcher.core.net import ssl_context
 
 logger = logging.getLogger("watcher.update_checker")
@@ -89,7 +90,7 @@ def _get_github_token() -> Optional[str]:
         return token
     try:
         result = subprocess.run(
-            ["gh", "auth", "token"],
+            gh_command("auth", "token"),
             capture_output=True,
             text=True,
             timeout=REQUEST_TIMEOUT_SECONDS,
