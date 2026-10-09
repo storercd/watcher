@@ -9,26 +9,15 @@ import time
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from watcher import __full_version__
-from watcher.core.base import CheckResult, Status, Watcher
-from watcher.core.config import (
-    load_config,
-    save_config,
-    watchers_to_config_list,
-)
+from watcher.core.base import Status
+from watcher.core.engine import Engine
 from watcher.core.logging_config import configure_logging
-from watcher.core.registry import detect_watcher_class, get_watcher_class
-from watcher.core.scheduler import Scheduler
-from watcher.core.update_checker import ReleaseInfo, UpdateChecker
 from watcher.gui.add_watcher_dialog import AddWatcherDialog, EditWatcherDialog
 from watcher.gui.settings_dialog import SettingsDialog
-from watcher.notifiers.away import DEFAULT_NTFY_SERVER
-from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
-from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401 - registers plugin
-from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401 - registers plugin
-from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401 - registers plugin
+from watcher.notifiers.router import MODES
 
 logger = logging.getLogger("watcher.gui")
 
@@ -72,11 +61,6 @@ QUEUE_POLL_MS = 500
 # first fired; this catches the user switching away afterward without
 # acknowledging.
 NUDGE_INTERVAL_MS = 5000
-
-# How often to check the UpdateChecker's result queue for a newly-found
-# release. Deliberately coarse since new releases are rare; this is just
-# polling a queue, not making a network call itself.
-UPDATE_QUEUE_POLL_MS = 5000
 
 # Base (scale=1.0) font sizes, bumped up from the original cramped defaults
 # for readability. Actual widget fonts are computed by scaling these - see
@@ -204,39 +188,27 @@ class MainWindow:
     def __init__(self, root: tk.Tk):
         """Build the window, load saved config/watchers, and start polling."""
         self.root = root
-        self.config = load_config()
-        self.watchers: Dict[str, Watcher] = {}
+        # Deliver notifications on this (Tk main) thread rather than from an
+        # engine thread: the Dock-bounce uses AppKit, which wants the main thread.
+        self.engine = Engine(version=__full_version__, deliver_notifications=False)
+        settings = self.engine.get_settings()
         self.row_widgets: Dict[str, Dict[str, tk.Widget]] = {}
         self._last_drain_at: Optional[float] = None
+        self._events: "queue.Queue[Dict[str, Any]]" = queue.Queue()
 
         # Font scaling state: "manual" is adjusted via the A-/A+ buttons and
         # persisted across restarts; "auto" tracks the window width and is
         # recomputed on every resize. The two combine into one effective
         # scale applied to every registered widget's font.
         self.manual_font_scale = _clamp(
-            float(self.config.get("font_scale", 1.0)), MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
+            float(settings.get("font_scale", 1.0)), MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
         )
         self._auto_font_scale = 1.0
         self._scalable_widgets: list = []  # [(widget, font_key), ...]
         self._last_scaled_width: Optional[int] = None
 
-        self.scheduler = Scheduler(poll_interval=self.config.get("poll_interval", 15))
-        self.router = NotificationRouter(
-            mode=self.config.get("mode", AT_DESK),
-            ntfy_server=self.config.get("ntfy_server", DEFAULT_NTFY_SERVER),
-            ntfy_topic=self.config.get("ntfy_topic", ""),
-        )
-        self.renotify_on_restart_var = tk.BooleanVar(
-            value=bool(self.config.get("renotify_on_restart", True))
-        )
-
-        self._load_watchers_from_config()
-        if self.renotify_on_restart_var.get():
-            for watcher in self.watchers.values():
-                watcher.forget_acknowledgment()
-
         self._restore_pending = False
-        self._build_ui()
+        self._build_ui(settings)
 
         self.root.bind("<Configure>", self._on_root_configure)
         # Tk re-applies its own collection behavior on window events. Do NOT
@@ -270,28 +242,11 @@ class MainWindow:
         # via Cocoa when PyObjC is available.
         self._install_activation_observer()
 
-        self.scheduler.set_watchers(list(self.watchers.values()))
-        self.scheduler.start()
-        self.scheduler.poll_once_async()
+        self.engine.subscribe(self._events.put)
+        self.engine.start()
 
-        self.update_checker = UpdateChecker(current_version=__full_version__)
-        self.update_checker.start()
-
-        self.root.after(QUEUE_POLL_MS, self._drain_results)
+        self.root.after(QUEUE_POLL_MS, self._drain_events)
         self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
-        self.root.after(UPDATE_QUEUE_POLL_MS, self._poll_update_results)
-
-    # ------------------------------------------------------------------
-    # Setup
-    # ------------------------------------------------------------------
-    def _load_watchers_from_config(self) -> None:
-        for entry in self.config.get("watchers", []):
-            try:
-                watcher_cls = get_watcher_class(entry["watcher_type"])
-                watcher = watcher_cls.from_config(entry)
-                self.watchers[watcher.id] = watcher
-            except (KeyError, ValueError) as exc:
-                print(f"[watcher] skipping invalid config entry {entry!r}: {exc}")
 
     # ------------------------------------------------------------------
     # Font scaling: manual (A-/A+ buttons) + automatic (window width)
@@ -408,12 +363,12 @@ class MainWindow:
             self.manual_font_scale + delta, MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
         )
         self._apply_font_scale()
-        self._save()
+        self.engine.update_settings({"font_scale": self.manual_font_scale})
 
-    def _build_ui(self) -> None:
+    def _build_ui(self, settings: Dict[str, Any]) -> None:
         self.root.title("Watcher")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.pinned = bool(self.config.get("always_on_top", False))
+        self.pinned = bool(settings.get("always_on_top", False))
         self.root.attributes("-topmost", self.pinned)
         self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
@@ -496,7 +451,7 @@ class MainWindow:
         mode_text_label = tk.Label(mode_frame, text="Mode:", bg="#1e1e1e", fg="white")
         mode_text_label.pack(side=tk.LEFT)
         self._register_font(mode_text_label, "body")
-        self.mode_var = tk.StringVar(value=self.router.mode)
+        self.mode_var = tk.StringVar(value=settings["mode"])
         self._combobox_style = ttk.Style()
         self._combobox_style.configure("Watcher.TCombobox", font=self._scaled_font("body"))
         mode_menu = ttk.Combobox(
@@ -529,11 +484,14 @@ class MainWindow:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        for watcher in self.watchers.values():
-            self._add_row(watcher)
-
         self.empty_label = None
-        if not self.watchers:
+        watchers = self.engine.list_watchers()
+        for snapshot in watchers:
+            self._add_row(snapshot)
+            if snapshot["last_checked"] is not None:
+                self._update_row(snapshot)
+
+        if not watchers:
             self._show_empty_label()
 
     def _show_empty_label(self) -> None:
@@ -552,7 +510,7 @@ class MainWindow:
         self.pinned = not self.pinned
         self.root.attributes("-topmost", self.pinned)
         self._update_pin_button()
-        self._save()
+        self.engine.update_settings({"always_on_top": self.pinned})
 
     def _update_pin_button(self) -> None:
         rest_bg = "#2e6fba" if self.pinned else "#2b2b2b"
@@ -562,7 +520,7 @@ class MainWindow:
     # ------------------------------------------------------------------
     # Watcher row management
     # ------------------------------------------------------------------
-    def _add_row(self, watcher: Watcher) -> None:
+    def _add_row(self, watcher: Dict[str, Any]) -> None:
         if getattr(self, "empty_label", None) is not None:
             self.empty_label.destroy()
             self.empty_label = None
@@ -577,7 +535,7 @@ class MainWindow:
         info_frame = tk.Frame(row, bg="#2b2b2b")
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
 
-        label = tk.Label(info_frame, text=watcher.label, bg="#2b2b2b", fg="white", anchor="w")
+        label = tk.Label(info_frame, text=watcher["label"], bg="#2b2b2b", fg="white", anchor="w")
         label.pack(side=tk.TOP, fill=tk.X)
         self._register_font(label, "body")
 
@@ -593,23 +551,23 @@ class MainWindow:
             anchor="w", wraplength=320, justify=tk.LEFT, cursor="hand2",
         )
         self._register_font(followup_label, "detail")
-        followup_label.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_watcher(wid))
+        followup_label.bind("<Button-1>", lambda _e, wid=watcher["id"]: self._on_edit_watcher(wid))
 
         notes_icon = tk.Label(row, text="📝", bg="#2b2b2b", cursor="hand2")
         notes_icon.pack(side=tk.RIGHT, padx=(0, 4))
         self._register_font(notes_icon, "icon")
-        notes_icon.bind("<Button-1>", lambda _e, wid=watcher.id: self._on_edit_watcher(wid))
-        self._update_notes_icon(notes_icon, watcher.notes)
-        self._update_followup_label(followup_label, detail, watcher.notes)
+        notes_icon.bind("<Button-1>", lambda _e, wid=watcher["id"]: self._on_edit_watcher(wid))
+        self._update_notes_icon(notes_icon, watcher["notes"])
+        self._update_followup_label(followup_label, detail, watcher["notes"])
 
         remove_btn = _make_label_button(
-            row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
+            row, "−", lambda wid=watcher["id"]: self._on_remove_watcher(wid),
             bg="#2b2b2b", hover_bg="#c0392b", tooltip="Stop watching this item",
         )
         remove_btn.pack(side=tk.RIGHT)
         self._register_font(remove_btn, "button")
 
-        self.row_widgets[watcher.id] = {
+        self.row_widgets[watcher["id"]] = {
             "dot": dot,
             "label": label,
             "detail": detail,
@@ -624,8 +582,8 @@ class MainWindow:
         # Double-clicking instead opens the watched item's URL in the
         # browser, so the user can jump straight to the Jenkins job/PR/run.
         for widget in (row, info_frame, label, detail):
-            widget.bind("<Button-1>", lambda _event, wid=watcher.id: self._on_acknowledge(wid))
-            widget.bind("<Double-Button-1>", lambda _event, wid=watcher.id: self._on_open_url(wid))
+            widget.bind("<Button-1>", lambda _event, wid=watcher["id"]: self._on_acknowledge(wid))
+            widget.bind("<Double-Button-1>", lambda _event, wid=watcher["id"]: self._on_open_url(wid))
 
     def _remove_row(self, watcher_id: str) -> None:
         widgets = self.row_widgets.pop(watcher_id, None)
@@ -638,92 +596,66 @@ class MainWindow:
                 (widget, key) for widget, key in self._scalable_widgets if widget not in dead
             ]
             widgets["row"].destroy()
-        if not self.watchers and getattr(self, "empty_label", None) is None:
+        if not self.row_widgets and getattr(self, "empty_label", None) is None:
             self._show_empty_label()
 
-    def _update_row(self, watcher_id: str, result: CheckResult) -> None:
-        widgets = self.row_widgets.get(watcher_id)
+    def _update_row(self, snapshot: Dict[str, Any]) -> None:
+        """Render a full engine snapshot (label, notes and status) into its row."""
+        widgets = self.row_widgets.get(snapshot["id"])
         if not widgets:
             return
 
-        bg = ROW_HIGHLIGHT_BG.get(result.status, DEFAULT_ROW_BG) if result.unacknowledged else DEFAULT_ROW_BG
-        fg = "white" if result.unacknowledged else "gray"
-        cursor = "pointinghand" if result.unacknowledged else "arrow"
+        status = Status(snapshot["status"])
+        unacknowledged = snapshot["unacknowledged"]
+        bg = ROW_HIGHLIGHT_BG.get(status, DEFAULT_ROW_BG) if unacknowledged else DEFAULT_ROW_BG
+        fg = "white" if unacknowledged else "gray"
+        cursor = "pointinghand" if unacknowledged else "arrow"
 
         widgets["row"].configure(bg=bg, cursor=cursor)
         widgets["info_frame"].configure(bg=bg, cursor=cursor)
-        widgets["dot"].configure(fg=STATUS_COLORS.get(result.status, "#888888"), bg=bg)
-        widgets["label"].configure(bg=bg)
+        widgets["dot"].configure(fg=STATUS_COLORS.get(status, "#888888"), bg=bg)
+        widgets["label"].configure(text=snapshot["label"], bg=bg)
+        self._update_notes_icon(widgets["notes_icon"], snapshot["notes"])
+        self._update_followup_label(widgets["followup_label"], widgets["detail"], snapshot["notes"])
 
-        checked_at = time.strftime("%H:%M:%S", time.localtime(result.checked_at))
-        text = f"{STATUS_LABELS.get(result.status, result.status.value)} · last checked {checked_at}"
-        if result.detail:
-            text += f" · {result.detail}"
-        if result.unacknowledged:
-            text += " · click to acknowledge"
+        if snapshot["last_checked"] is None:
+            text = "unknown · never checked"
+        else:
+            checked_at = time.strftime("%H:%M:%S", time.localtime(snapshot["last_checked"]))
+            text = f"{STATUS_LABELS.get(status, status.value)} · last checked {checked_at}"
+            if snapshot["detail"]:
+                text += f" · {snapshot['detail']}"
+            if unacknowledged:
+                text += " · click to acknowledge"
         widgets["detail"].configure(text=text, bg=bg, fg=fg)
 
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
     def _on_open_settings(self) -> None:
+        settings = self.engine.get_settings()
         dialog = SettingsDialog(
             self.root,
-            ntfy_server=self.router.away_notifier.server,
-            ntfy_topic=self.router.away_notifier.topic,
-            renotify_on_restart=self.renotify_on_restart_var.get(),
+            ntfy_server=settings["ntfy_server"],
+            ntfy_topic=settings["ntfy_topic"],
+            renotify_on_restart=settings["renotify_on_restart"],
         )
         if not dialog.result:
             return
         server, topic, renotify_on_restart = dialog.result
-        self.router.configure_away(server=server, topic=topic)
-        self.renotify_on_restart_var.set(renotify_on_restart)
-        self._save()
+        self.engine.update_settings(
+            {"ntfy_server": server, "ntfy_topic": topic, "renotify_on_restart": renotify_on_restart}
+        )
 
     def _on_add_watcher(self) -> None:
         dialog = AddWatcherDialog(self.root)
         if not dialog.result:
             return
         url, label, notes = dialog.result
-        watcher = self._construct_watcher(url, label, notes, error_title="Add Watcher")
-        if watcher is None:
-            return
-
-        self.watchers[watcher.id] = watcher
-        self._add_row(watcher)
-        self.scheduler.add_watcher(watcher)
-        self._save()
-        self.scheduler.poll_once_async()
-
-    def _construct_watcher(
-        self, url: str, label: str, notes: str, error_title: str, watcher_id: Optional[str] = None
-    ) -> Optional[Watcher]:
-        """
-        Detect the watcher type for ``url`` and construct a watcher instance.
-
-        Shows an error dialog and returns None if the URL isn't recognized or
-        the watcher type rejects it.
-
-        Returns:
-            The constructed watcher, or None on failure (after showing an
-            error dialog).
-        """
-        watcher_cls = detect_watcher_class(url)
-        if watcher_cls is None:
-            messagebox.showerror(
-                error_title,
-                "Could not determine what kind of URL this is.\n\n"
-                "Expected a Jenkins job URL (contains /job/), a GitHub PR URL "
-                "(github.com/owner/repo/pull/123), or a GitHub Actions run URL "
-                "(github.com/owner/repo/actions/runs/123456).",
-            )
-            return None
-
         try:
-            return watcher_cls(url, watcher_id=watcher_id, label=label, notes=notes)
+            self.engine.add_watcher(url, label, notes)
         except ValueError as exc:
-            messagebox.showerror(error_title, str(exc))
-            return None
+            messagebox.showerror("Add Watcher", str(exc))
 
     def _update_notes_icon(self, icon: tk.Label, notes: str) -> None:
         icon.configure(fg="#d9a400" if notes else "#555555")
@@ -746,82 +678,45 @@ class MainWindow:
         replacing the watcher in-place if the URL (and therefore what's
         being watched) changed.
         """
-        watcher = self.watchers.get(watcher_id)
-        if watcher is None:
+        snapshot = self.engine.get_watcher(watcher_id)
+        if snapshot is None:
             return
         dialog = EditWatcherDialog(
-            self.root, label=watcher.label, initial_url=watcher.display_url or "", initial_notes=watcher.notes
+            self.root, label=snapshot["label"], initial_url=snapshot["url"] or "", initial_notes=snapshot["notes"]
         )
         if dialog.result is None:
             return
         url, label, notes = dialog.result
 
-        url_changed = url != (watcher.display_url or "")
-        if url_changed:
-            new_watcher = self._construct_watcher(url, label, notes, error_title="Edit Watcher", watcher_id=watcher_id)
-            if new_watcher is None:
-                return
-            self.watchers[watcher_id] = new_watcher
-            self.scheduler.add_watcher(new_watcher)
-            watcher = new_watcher
-        else:
-            watcher.label = label
-            watcher.notes = notes
-
-        widgets = self.row_widgets.get(watcher_id)
-        if widgets:
-            widgets["label"].configure(text=watcher.label)
-            self._update_notes_icon(widgets["notes_icon"], watcher.notes)
-            self._update_followup_label(widgets["followup_label"], widgets["detail"], watcher.notes)
-            if url_changed:
-                # The replaced watcher hasn't been checked yet; reset the row
-                # to its initial "never checked" appearance instead of
-                # leaving stale status from whatever was watched before.
-                widgets["row"].configure(bg=DEFAULT_ROW_BG, cursor="arrow")
-                widgets["info_frame"].configure(bg=DEFAULT_ROW_BG, cursor="arrow")
-                widgets["dot"].configure(fg=STATUS_COLORS[Status.UNKNOWN], bg=DEFAULT_ROW_BG)
-                widgets["label"].configure(bg=DEFAULT_ROW_BG)
-                widgets["detail"].configure(text="unknown · never checked", bg=DEFAULT_ROW_BG, fg="gray")
-        self._save()
-        if url_changed:
-            self.scheduler.poll_once_async()
+        try:
+            self.engine.update_watcher(watcher_id, url=url, label=label, notes=notes)
+        except ValueError as exc:
+            messagebox.showerror("Edit Watcher", str(exc))
+        except KeyError:
+            logger.debug("watcher %s was removed while its edit dialog was open", watcher_id)
 
     def _on_remove_watcher(self, watcher_id: str) -> None:
-        self.watchers.pop(watcher_id, None)
-        self.scheduler.remove_watcher(watcher_id)
-        self._remove_row(watcher_id)
-        self._save()
+        self.engine.remove_watcher(watcher_id)
 
     def _on_acknowledge(self, watcher_id: str) -> None:
-        watcher = self.watchers.get(watcher_id)
-        if watcher is None or not watcher.unacknowledged:
-            return
-        watcher.acknowledge()
-        self._update_row(
-            watcher_id,
-            CheckResult(status=watcher.last_status, detail=watcher.last_detail, unacknowledged=False),
-        )
-        self._save()
+        self.engine.acknowledge(watcher_id)
 
     def _on_open_url(self, watcher_id: str) -> None:
         """Open the watched item's URL in the default browser (double-click)."""
-        watcher = self.watchers.get(watcher_id)
-        if watcher is None or not watcher.display_url:
+        snapshot = self.engine.get_watcher(watcher_id)
+        if snapshot is None or not snapshot["url"]:
             return
-        webbrowser.open(watcher.display_url)
+        webbrowser.open(snapshot["url"])
 
     def _on_mode_change(self, _event=None) -> None:
-        self.router.set_mode(self.mode_var.get())
-        self._save()
+        self.engine.update_settings({"mode": self.mode_var.get()})
 
     def _on_close(self) -> None:
-        self.scheduler.stop()
-        self.update_checker.stop()
-        self._save()
+        self.engine.stop()
         self.root.destroy()
         logger.info("Watcher shut down")
-        # Signals, rather than waits for, the scheduler/update-checker
-        # daemon threads above - one of them may still be blocked inside a
+        # Signals, rather than waits for, the engine's daemon threads above -
+        # one of them may still be blocked inside a
         # network call (urllib/ssl) when the user closes the window. Falling
         # through to normal interpreter shutdown in that case can segfault
         # (Python finalizing state out from under a thread stuck in a C
@@ -831,9 +726,9 @@ class MainWindow:
         os._exit(0)
 
     # ------------------------------------------------------------------
-    # Scheduler queue draining (runs on the Tk main loop thread)
+    # Engine event draining (runs on the Tk main loop thread)
     # ------------------------------------------------------------------
-    def _drain_results(self) -> None:
+    def _drain_events(self) -> None:
         tick_start = time.monotonic()
         if self._last_drain_at is not None:
             gap = tick_start - self._last_drain_at
@@ -846,62 +741,53 @@ class MainWindow:
 
         try:
             while True:
-                watcher_id, result = self.scheduler.results.get_nowait()
-                watcher = self.watchers.get(watcher_id)
-                if watcher is None:
-                    continue
-                self._update_row(watcher_id, result)
-                if result.newly_actionable:
-                    notify_start = time.monotonic()
-                    self.router.notify(
-                        title=f"Watcher: {watcher.label}",
-                        message=f"{STATUS_LABELS.get(result.status, result.status.value)} — {result.detail}",
-                    )
-                    notify_elapsed = time.monotonic() - notify_start
-                    logger.debug("router.notify() for %r took %.3fs", watcher.label, notify_elapsed)
-                    if notify_elapsed > 0.1:
-                        logger.warning(
-                            "router.notify() for %r blocked the GUI thread for %.3fs",
-                            watcher.label, notify_elapsed,
-                        )
-                    self._save()
+                self._apply_event(self._events.get_nowait())
         except queue.Empty:
             pass
         finally:
             drain_elapsed = time.monotonic() - tick_start
             if drain_elapsed > SLOW_DRAIN_THRESHOLD_S:
-                logger.warning("_drain_results() itself took %.3fs", drain_elapsed)
-            self.root.after(QUEUE_POLL_MS, self._drain_results)
+                logger.warning("_drain_events() itself took %.3fs", drain_elapsed)
+            self.root.after(QUEUE_POLL_MS, self._drain_events)
+
+    def _apply_event(self, event: Dict[str, Any]) -> None:
+        """Reflect one engine event in the UI (and deliver notifications here, on the Tk thread)."""
+        kind = event["type"]
+        if kind == "watcher_added":
+            if getattr(self, "empty_label", None) is not None:
+                self.empty_label.destroy()
+                self.empty_label = None
+            self._add_row(event["watcher"])
+            self._update_row(event["watcher"])
+        elif kind == "watcher_updated":
+            self._update_row(event["watcher"])
+        elif kind == "watcher_removed":
+            self._remove_row(event["id"])
+        elif kind == "notification":
+            self._deliver_notification(event["title"], event["message"])
+        elif kind == "update_available":
+            self._show_update_banner(event["version"], event["url"])
+
+    def _deliver_notification(self, title: str, message: str) -> None:
+        notify_start = time.monotonic()
+        self.engine.router.notify(title=title, message=message)
+        notify_elapsed = time.monotonic() - notify_start
+        logger.debug("router.notify() for %r took %.3fs", title, notify_elapsed)
+        if notify_elapsed > 0.1:
+            logger.warning("router.notify() for %r blocked the GUI thread for %.3fs", title, notify_elapsed)
 
     def _nudge_tick(self) -> None:
         """Periodically re-assert attention if any watcher is still unacknowledged."""
-        has_unacknowledged = any(watcher.unacknowledged for watcher in self.watchers.values())
         try:
-            self.router.nudge(has_unacknowledged)
-        except Exception:  # noqa: BLE001 - a nudge failure must never stop the GUI's tick loop
-            logger.exception("router.nudge() failed")
+            self.engine.nudge()
         finally:
             self.root.after(NUDGE_INTERVAL_MS, self._nudge_tick)
 
-    def _poll_update_results(self) -> None:
-        """Drain UpdateChecker.results (populated on a background thread) onto the GUI."""
-        try:
-            release = self.update_checker.results.get_nowait()
-        except queue.Empty:
-            pass
-        else:
-            self._show_update_banner(release)
-        finally:
-            self.root.after(UPDATE_QUEUE_POLL_MS, self._poll_update_results)
-
-    def _show_update_banner(self, release: ReleaseInfo) -> None:
-        if release.version == self.config.get("update_dismissed_version"):
-            logger.debug("update %s found but already dismissed by the user", release.version)
-            return
-        logger.info("update available: %s", release.version)
-        self._update_banner_url = release.html_url
-        self._update_banner_version = release.version
-        self.update_banner_label.configure(text=f"⬆ Watcher {release.version} available — click to download")
+    def _show_update_banner(self, version: str, url: str) -> None:
+        logger.info("update available: %s", version)
+        self._update_banner_url = url
+        self._update_banner_version = version
+        self.update_banner_label.configure(text=f"⬆ Watcher {version} available — click to download")
         self.update_banner.pack(side=tk.TOP, fill=tk.X, before=self.mode_frame)
 
     def _on_open_update(self) -> None:
@@ -910,19 +796,9 @@ class MainWindow:
 
     def _on_dismiss_update(self) -> None:
         self.update_banner.pack_forget()
-        self.config["update_dismissed_version"] = getattr(self, "_update_banner_version", None)
-        self._save()
-
-    def _save(self) -> None:
-        self.config["watchers"] = watchers_to_config_list(list(self.watchers.values()))
-        self.config["mode"] = self.router.mode
-        self.config["ntfy_server"] = self.router.away_notifier.server
-        self.config["ntfy_topic"] = self.router.away_notifier.topic
-        self.config["poll_interval"] = self.scheduler.poll_interval
-        self.config["font_scale"] = self.manual_font_scale
-        self.config["always_on_top"] = self.pinned
-        self.config["renotify_on_restart"] = self.renotify_on_restart_var.get()
-        save_config(self.config)
+        version = getattr(self, "_update_banner_version", None)
+        if version:
+            self.engine.dismiss_update(version)
 
 
 def run() -> None:

@@ -156,6 +156,10 @@ watcher/
     registry.py     # watcher_type -> class registry (for config loading)
     config.py       # JSON load/save for ~/.watcher/config.json
     scheduler.py     # background polling thread + thread-safe results queue
+    engine.py        # headless Engine: watchers, polling, notifications, config, update checks
+  api/
+    server.py       # localhost HTTP/JSON + SSE API over the Engine (contract: docs/api.yaml)
+    __main__.py     # `python -m watcher.api`: run the engine headless
   watchers/
     jenkins.py      # JenkinsWatcher plugin (polls <job_url>/api/json)
     github_pr.py    # GitHubPRWatcher plugin (polls `gh pr view` status checks)
@@ -174,7 +178,26 @@ tests/
   test_jenkins_watcher.py    # unit tests for Jenkins status + transition logic
   test_github_pr_watcher.py  # unit tests for GitHub PR status + transition logic
   test_github_actions_run_watcher.py # unit tests for GitHub Actions run status + transition logic
+  test_engine.py             # unit tests for the headless Engine
+  test_api.py                # tests for the local HTTP API
+docs/
+  api.yaml          # OpenAPI contract for the local API
 ```
+
+## Headless engine and local API
+
+Everything except drawing the window lives in `watcher.core.engine.Engine`;
+the Tk GUI is a thin client of it. The same engine can run on its own and be
+driven over a localhost-only HTTP/JSON API (with a Server-Sent Events stream),
+so a native UI (e.g. SwiftUI on macOS, or a future Windows app) can reuse it:
+
+```bash
+python -m watcher.api --exit-on-stdin-close
+# prints {"port": 51234, "token": "..."} then serves http://127.0.0.1:<port>/v1/...
+```
+
+Every request needs `Authorization: Bearer <token>`. See
+[`docs/api.yaml`](docs/api.yaml) for the full contract.
 
 ## Plugin architecture
 
