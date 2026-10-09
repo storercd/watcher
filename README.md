@@ -1,13 +1,13 @@
 # Watcher
 
-Watcher is a small, draggable, always-on-top desktop window that watches
+Watcher is a small desktop window that watches
 things — Jenkins jobs, GitHub pull request status checks, and GitHub
 Actions workflow runs — and notifies
 you when they become actionable (e.g. a build finishes or all checks pass).
 
 ## What it does
 
-- Shows a compact, frameless, always-on-top window listing everything you're
+- Shows a compact window with native macOS title bar (close/minimize/zoom) listing everything you're
   watching, with a live status dot (idle / building / success / failure /
   error) and the last-checked time for each.
 - Polls each watched item on a background timer (default every 15s) without
@@ -111,7 +111,7 @@ From the window:
 - Click **−** next to a watcher to remove it.
 - When a row turns green/red, click anywhere on it to acknowledge the
   finished build and clear the highlight.
-- Drag the title bar to move the window; it stays on top of other windows.
+- Click the 📌 toolbar button to toggle keeping the window on top of others (off by default; remembered).
 - Click **×** to close (this also saves your current config).
 
 The window is unauthenticated/anonymous-access only for Jenkins right now —
@@ -166,7 +166,7 @@ watcher/
     away.py         # AwayNotifier (publishes to a configurable ntfy topic)
     router.py       # NotificationRouter: mode -> notifier(s) dispatch
   gui/
-    main_window.py        # the always-on-top window, drag handling, polling loop
+    main_window.py        # the main window (optional pin-on-top), polling loop
     add_watcher_dialog.py # watcher-type picker + per-type "Add ... Watcher" dialogs
     settings_dialog.py    # settings dialog (ntfy server/topic for Away mode)
 main.py             # entrypoint: python main.py

@@ -12,8 +12,9 @@ an existing watcher - not just its follow-up note.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import simpledialog
 from typing import Optional, Tuple
+
+from watcher.gui.dialog_base import OnTopDialog
 
 
 def _build_watcher_form(master, dialog, initial_url: str = "", initial_label: str = "", initial_notes: str = ""):
@@ -56,7 +57,7 @@ def _build_watcher_form(master, dialog, initial_url: str = "", initial_label: st
     return url_entry  # initial focus
 
 
-class AddWatcherDialog(simpledialog.Dialog):
+class AddWatcherDialog(OnTopDialog):
     """Modal dialog that asks for a URL to watch; the type is auto-detected."""
 
     def __init__(self, parent):
@@ -93,7 +94,7 @@ class AddWatcherDialog(simpledialog.Dialog):
         self.result = (self.url_var.get().strip(), self.label_var.get().strip(), notes)
 
 
-class EditWatcherDialog(simpledialog.Dialog):
+class EditWatcherDialog(OnTopDialog):
     """Modal dialog for editing everything about an existing watcher: its watched URL, label, and follow-up note."""
 
     def __init__(self, parent, label: str, initial_url: str = "", initial_notes: str = ""):
