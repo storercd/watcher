@@ -119,6 +119,7 @@ def _make_label_button(
     fg: str = "white",
     hover_bg: Optional[str] = None,
     font=(FONT_FAMILY, BASE_FONT_SIZES["button"][0]),
+    tooltip=None,
 ) -> tk.Label:
     """
     A Label styled/clicked like a button.
@@ -144,6 +145,8 @@ def _make_label_button(
     btn.bind("<Button-1>", on_click)
     btn.bind("<Enter>", on_enter)
     btn.bind("<Leave>", on_leave)
+    if tooltip:
+        btn.tooltip = _Tooltip(btn, tooltip)
     return btn
 
 
@@ -185,7 +188,6 @@ class MainWindow:
                 watcher.forget_acknowledgment()
 
         self._build_ui()
-        self._make_draggable(self.root)
 
         self.root.bind("<Configure>", self._on_root_configure)
 
@@ -276,8 +278,9 @@ class MainWindow:
         behind other windows.
         """
         self.root.deiconify()
-        self.root.attributes("-topmost", False)
-        self.root.attributes("-topmost", True)
+        if self.pinned:
+            self.root.attributes("-topmost", False)
+            self.root.attributes("-topmost", True)
         self.root.lift()
         self.root.focus_force()
 
@@ -306,37 +309,44 @@ class MainWindow:
 
     def _build_ui(self) -> None:
         self.root.title("Watcher")
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.pinned = bool(self.config.get("always_on_top", False))
+        self.root.attributes("-topmost", self.pinned)
         self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
-        self.root.overrideredirect(True)  # frameless-ish window
-        # Must come after overrideredirect(): on macOS that call recreates the
-        # native window and resets its level. Re-apply once the window is
-        # actually mapped, too, since the level can be dropped before then.
-        self.root.attributes("-topmost", True)
-        self.root.after_idle(self._on_reopen_application)
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 
-        # Title bar (also the drag handle) with close button and mode selector.
+        # Toolbar below the native macOS title bar.
         titlebar = tk.Frame(self.root, bg="#2b2b2b", height=34)
         titlebar.pack(side=tk.TOP, fill=tk.X)
         titlebar.pack_propagate(False)
-        self._drag_handles = [titlebar]
 
         title_label = tk.Label(titlebar, text="👀 Watcher", bg="#2b2b2b", fg="white")
         title_label.pack(side=tk.LEFT, padx=8)
         self._register_font(title_label, "title")
-        self._drag_handles.append(title_label)
 
-        close_btn = _make_label_button(titlebar, "×", self._on_close, bg="#2b2b2b", hover_bg="#c0392b")
-        close_btn.pack(side=tk.RIGHT, padx=4)
-        self._register_font(close_btn, "button")
+        self.pin_btn = _make_label_button(
+            titlebar, "📌", self._on_toggle_pin, bg="#2b2b2b", hover_bg="#3a3a3a",
+            tooltip=lambda: (
+                "Keep on top: ON (click to let other windows cover Watcher)"
+                if self.pinned
+                else "Keep on top: OFF (click to float above other windows)"
+            ),
+        )
+        self.pin_btn.pack(side=tk.RIGHT, padx=4)
+        self._register_font(self.pin_btn, "button")
+        self._update_pin_button()
 
-        add_btn = _make_label_button(titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57")
+        add_btn = _make_label_button(
+            titlebar, "+", self._on_add_watcher, bg="#2b2b2b", hover_bg="#2e8b57",
+            tooltip="Add a watcher",
+        )
         add_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(add_btn, "button_bold")
 
         settings_btn = _make_label_button(
             titlebar, "⚙", self._on_open_settings, bg="#2b2b2b", hover_bg="#3a3a3a",
+            tooltip="Settings (notifications, poll interval)",
         )
         settings_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(settings_btn, "button")
@@ -344,12 +354,14 @@ class MainWindow:
         # Text size (zoom) controls, independent of window-resize auto-scale.
         zoom_in_btn = _make_label_button(
             titlebar, "A+", lambda: self._on_zoom(MANUAL_SCALE_STEP), bg="#2b2b2b", hover_bg="#3a3a3a",
+            tooltip="Increase text size",
         )
         zoom_in_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(zoom_in_btn, "button")
 
         zoom_out_btn = _make_label_button(
             titlebar, "A-", lambda: self._on_zoom(-MANUAL_SCALE_STEP), bg="#2b2b2b", hover_bg="#3a3a3a",
+            tooltip="Decrease text size",
         )
         zoom_out_btn.pack(side=tk.RIGHT, padx=2)
         self._register_font(zoom_out_btn, "button")
@@ -369,6 +381,7 @@ class MainWindow:
         self.update_banner_label = update_label
         update_dismiss_btn = _make_label_button(
             self.update_banner, "×", self._on_dismiss_update, bg="#4a4420", hover_bg="#5f5728",
+            tooltip="Dismiss this update notice",
         )
         update_dismiss_btn.pack(side=tk.RIGHT, padx=4)
         self._register_font(update_dismiss_btn, "button")
@@ -420,8 +433,6 @@ class MainWindow:
         if not self.watchers:
             self._show_empty_label()
 
-        self._add_resize_grip()
-
     def _show_empty_label(self) -> None:
         self.empty_label = tk.Label(
             self.list_frame,
@@ -434,51 +445,14 @@ class MainWindow:
         self._register_font(self.empty_label, "body")
         self.empty_label.pack(anchor="w", pady=10)
 
-    def _add_resize_grip(self) -> None:
-        """
-        Add a bottom-right drag handle so this frameless window can be resized.
+    def _on_toggle_pin(self) -> None:
+        self.pinned = not self.pinned
+        self.root.attributes("-topmost", self.pinned)
+        self._update_pin_button()
+        self._save()
 
-        `overrideredirect(True)` removes native OS window chrome (including
-        the native resize border/corner), so without this the window would
-        be stuck at its initial size.
-        """
-        grip = tk.Label(
-            self.root, text="⋰", bg="#2b2b2b", fg="#888888", font=("Helvetica", 14, "bold"),
-            cursor="bottom_right_corner",
-        )
-        grip.place(relx=1.0, rely=1.0, anchor="se", width=16, height=16)
-
-        def start_resize(event):
-            self._resize_origin = (
-                event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height(),
-            )
-
-        def do_resize(event):
-            start_x, start_y, start_w, start_h = self._resize_origin
-            new_w = max(self.root.winfo_reqwidth(), start_w + (event.x_root - start_x))
-            new_h = max(self.root.winfo_reqheight(), start_h + (event.y_root - start_y))
-            min_w, min_h = MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
-            new_w = max(new_w, min_w)
-            new_h = max(new_h, min_h)
-            self.root.geometry(f"{new_w}x{new_h}")
-
-        grip.bind("<ButtonPress-1>", start_resize)
-        grip.bind("<B1-Motion>", do_resize)
-
-    def _make_draggable(self, root: tk.Tk) -> None:
-        self._drag_offset = (0, 0)
-
-        def start_drag(event):
-            self._drag_offset = (event.x, event.y)
-
-        def do_drag(event):
-            x = root.winfo_pointerx() - self._drag_offset[0]
-            y = root.winfo_pointery() - self._drag_offset[1]
-            root.geometry(f"+{x}+{y}")
-
-        for widget in self._drag_handles:
-            widget.bind("<ButtonPress-1>", start_drag)
-            widget.bind("<B1-Motion>", do_drag)
+    def _update_pin_button(self) -> None:
+        self.pin_btn.configure(fg="white" if self.pinned else "#666666")
 
     # ------------------------------------------------------------------
     # Watcher row management
@@ -525,7 +499,7 @@ class MainWindow:
 
         remove_btn = _make_label_button(
             row, "−", lambda wid=watcher.id: self._on_remove_watcher(wid),
-            bg="#2b2b2b", hover_bg="#c0392b",
+            bg="#2b2b2b", hover_bg="#c0392b", tooltip="Stop watching this item",
         )
         remove_btn.pack(side=tk.RIGHT)
         self._register_font(remove_btn, "button")
@@ -841,6 +815,7 @@ class MainWindow:
         self.config["ntfy_topic"] = self.router.away_notifier.topic
         self.config["poll_interval"] = self.scheduler.poll_interval
         self.config["font_scale"] = self.manual_font_scale
+        self.config["always_on_top"] = self.pinned
         self.config["renotify_on_restart"] = self.renotify_on_restart_var.get()
         save_config(self.config)
 
