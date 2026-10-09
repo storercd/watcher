@@ -111,7 +111,7 @@ public final class CoreProcess: @unchecked Sendable {
                 return nil
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                try await Task.sleep(nanoseconds: 120 * 1_000_000_000)
                 return nil
             }
             let first = try await group.next() ?? nil
