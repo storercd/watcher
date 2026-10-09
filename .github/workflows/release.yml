@@ -1,10 +1,11 @@
 name: Release
 
-# Builds and publishes Watcher.app for every merge to main, so there's
+# Builds and publishes the native SwiftUI Watcher.app (Swift UI + frozen
+# Python engine sidecar) for every merge to main, so there's
 # always a current "latest good build" on the Releases page for end users
 # to download - no manual version bump required. The version embedded in
 # the build is "<base __version__>.<commit count>" (see
-# scripts/build_macos_app.sh), which is what the app's own in-app update
+# scripts/build_native_app.sh), which is what the app's own in-app update
 # checker compares against, so a plain merge is always detectable as an
 # update even when __version__ itself didn't change.
 on:
@@ -16,8 +17,8 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: macos-14
-    timeout-minutes: 20
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,10 +49,13 @@ jobs:
           echo "full_version=${full_version}" >> "$GITHUB_OUTPUT"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
+      - name: Swift tests
+        run: swift test --package-path macos
+
       - name: Build Watcher.app
         env:
           WATCHER_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
-        run: ./scripts/build_macos_app.sh
+        run: ./scripts/build_native_app.sh
 
       - name: Zip app bundle
         run: |

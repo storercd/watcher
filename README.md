@@ -91,7 +91,7 @@ cd macos && WATCHER_REPO=.. swift run WatcherApp   # run from source
 When run from source it finds the repo (or `WATCHER_REPO`) and uses its
 `.venv`/`WATCHER_PYTHON`/`python3`; the built app embeds a frozen copy of the
 engine instead. Notifications (including Away-mode ntfy) are still delivered
-by the engine. The release workflow still publishes the Tk build.
+by the engine. The release workflow publishes this native build.
 
 ### Pinning it to the macOS Dock
 

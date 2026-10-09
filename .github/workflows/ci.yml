@@ -32,7 +32,8 @@ jobs:
         run: pytest -v
 
   swift-build-and-test:
-    runs-on: macos-14
+    # Needs Xcode 16+ for the Swift Testing module.
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
