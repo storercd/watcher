@@ -32,8 +32,14 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .help("Where notifications go: this Mac, or your phone via ntfy")
             }
-            ToolbarItem { Button { store.pollNow() } label: { Label("Check now", systemImage: "arrow.clockwise") } }
-            ToolbarItem { Button { adding = true } label: { Label("Add", systemImage: "plus") } }
+            ToolbarItem {
+                Button { store.pollNow() } label: { Label("Check now", systemImage: "arrow.clockwise") }
+                    .help("Check all watchers now, instead of waiting for the next poll")
+            }
+            ToolbarItem {
+                Button { adding = true } label: { Label("Add", systemImage: "plus") }
+                    .help("Add a Jenkins job, GitHub PR or Actions run to watch")
+            }
         }
         .sheet(isPresented: $adding) { WatcherForm(existing: nil) }
         .sheet(item: $editing) { WatcherForm(existing: $0) }
@@ -86,9 +92,13 @@ struct WatcherRow: View {
                 }
             }
             Spacer()
-            if item.unacknowledged { Button("Got it") { store.acknowledge(item) } }
+            if item.unacknowledged {
+                Button("Got it") { store.acknowledge(item) }
+                    .help("Mark this result as seen")
+            }
         }
         .padding(.vertical, 3)
+        .help(item.url ?? "")
     }
 
     private var icon: String {
