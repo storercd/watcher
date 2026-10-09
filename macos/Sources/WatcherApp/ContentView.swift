@@ -48,6 +48,16 @@ struct ContentView: View {
         ) { Button("OK") {} } message: { Text(store.errorMessage ?? "") }
     }
 
+    @ViewBuilder private func highlight(for item: WatcherItem) -> some View {
+        if item.unacknowledged {
+            switch item.status {
+            case .success: Color.green.opacity(0.28)
+            case .failure: Color.red.opacity(0.28)
+            default: Color.orange.opacity(0.28)
+            }
+        }
+    }
+
     private func open(_ item: WatcherItem) {
         if let url = item.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
     }
@@ -59,6 +69,7 @@ struct ContentView: View {
         } else {
             List(store.watchers) { item in
                 WatcherRow(item: item)
+                    .listRowBackground(highlight(for: item))
                     .contextMenu {
                         if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
                         if item.url.flatMap(URL.init(string:)) != nil {
