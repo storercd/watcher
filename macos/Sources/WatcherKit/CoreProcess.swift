@@ -29,6 +29,7 @@ public final class CoreProcess: @unchecked Sendable {
 
     private var process: Process?
     private var stdinPipe: Pipe?
+    private let stderrTail = LockedString()
 
     public init() {}
 
@@ -89,10 +90,17 @@ public final class CoreProcess: @unchecked Sendable {
         process.executableURL = command.executable
         process.arguments = command.arguments
         process.currentDirectoryURL = command.workingDirectory
-        let stdin = Pipe(), stdout = Pipe()
+        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
-        process.standardError = FileHandle.standardError
+        process.standardError = stderr
+        let tail = stderrTail
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return handle.readabilityHandler = nil }
+            FileHandle.standardError.write(data)
+            tail.append(String(decoding: data, as: UTF8.self))
+        }
         do { try process.run() } catch { throw CoreError.handshakeFailed(error.localizedDescription) }
         self.process = process
         self.stdinPipe = stdin
@@ -114,7 +122,8 @@ public final class CoreProcess: @unchecked Sendable {
             let handshake = try? JSONDecoder().decode(Handshake.self, from: data)
         else {
             stop()
-            throw CoreError.handshakeFailed("no handshake received")
+            let detail = stderrTail.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CoreError.handshakeFailed(detail.isEmpty ? "no handshake received" : detail)
         }
         return handshake
     }
@@ -127,5 +136,24 @@ public final class CoreProcess: @unchecked Sendable {
         if let process, process.isRunning {
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if process.isRunning { process.terminate() } }
         }
+    }
+}
+
+
+/// Keeps the last few KB of the core's stderr for error messages.
+final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var text = ""
+
+    func append(_ more: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        text = String((text + more).suffix(4000))
+    }
+
+    var value: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return text
     }
 }
