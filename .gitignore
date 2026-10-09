@@ -32,3 +32,7 @@ config.local.json
 .pytest_cache/
 .coverage
 htmlcov/
+
+# SwiftPM build output
+macos/.build/
+macos/.swiftpm/

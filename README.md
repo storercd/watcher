@@ -77,6 +77,22 @@ installs you may need `apt install python3-tk` or similar).
 python3 main.py
 ```
 
+### Native SwiftUI app (macOS)
+
+`macos/` is a SwiftUI app that launches the Python engine as a sidecar and
+talks to it over the local API (see below). It needs Swift 5.9+ (Xcode or the
+Command Line Tools):
+
+```bash
+cd macos && WATCHER_REPO=.. swift run WatcherApp   # run from source
+./scripts/build_native_app.sh                      # build dist/Watcher.app
+```
+
+When run from source it finds the repo (or `WATCHER_REPO`) and uses its
+`.venv`/`WATCHER_PYTHON`/`python3`; the built app embeds a frozen copy of the
+engine instead. Notifications (including Away-mode ntfy) are still delivered
+by the engine. The release workflow publishes this native build.
+
 ### Pinning it to the macOS Dock
 
 Running `python3 main.py` directly gives Watcher the generic Python rocket
@@ -180,6 +196,7 @@ tests/
   test_github_actions_run_watcher.py # unit tests for GitHub Actions run status + transition logic
   test_engine.py             # unit tests for the headless Engine
   test_api.py                # tests for the local HTTP API
+macos/              # SwiftUI app (Package.swift, Sources/WatcherKit, Sources/WatcherApp, Tests)
 docs/
   api.yaml          # OpenAPI contract for the local API
 ```
