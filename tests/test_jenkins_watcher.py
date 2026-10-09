@@ -288,3 +288,10 @@ class TestJenkinsWatcherCheck:
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job/645")
         assert watcher.job_url == "https://jenkins.example.com/job/my-cool-job"
         assert watcher.label == "my-cool-job"
+
+
+def test_normalize_strips_console_and_other_subpages():
+    """Any sub-page under a job normalizes to the job URL."""
+    base = "http://j.example/job/MAPS/job/MapFlow/job/map_update"
+    for suffix in ("/357/console", "/357/parameters/", "/lastBuild/consoleText", "/configure", "/357/console?x=1"):
+        assert _normalize_job_url(base + suffix) == base
