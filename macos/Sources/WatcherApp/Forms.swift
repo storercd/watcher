@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WatcherKit
 
@@ -105,6 +106,9 @@ struct SettingsView: View {
         let patch: [String: Any] = [
             "ntfy_server": server, "ntfy_topic": topic, "poll_interval": interval, "renotify_on_restart": renotify,
         ]
-        Task { error = await store.perform { try await $0.updateSettings(patch) } }
+        Task {
+            error = await store.perform { try await $0.updateSettings(patch) }
+            if error == nil { NSApp.keyWindow?.performClose(nil) }
+        }
     }
 }
