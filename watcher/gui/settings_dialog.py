@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import simpledialog
+from watcher.gui.dialog_base import OnTopDialog
 from typing import Optional, Tuple
 
 
-class SettingsDialog(simpledialog.Dialog):
+class SettingsDialog(OnTopDialog):
     """Modal dialog that edits the ntfy server/topic and other app-level settings."""
 
     def __init__(self, parent, ntfy_server: str, ntfy_topic: str, renotify_on_restart: bool):
