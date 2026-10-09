@@ -42,6 +42,10 @@ struct ContentView: View {
         ) { Button("OK") {} } message: { Text(store.errorMessage ?? "") }
     }
 
+    private func open(_ item: WatcherItem) {
+        if let url = item.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
+    }
+
     @ViewBuilder private var watcherList: some View {
         if store.watchers.isEmpty {
             Text("Nothing watched yet. Click + to add a Jenkins job, PR or Actions run.")
@@ -51,14 +55,14 @@ struct ContentView: View {
                 WatcherRow(item: item)
                     .contextMenu {
                         if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
-                        if let url = item.url.flatMap(URL.init(string:)) {
-                            Button("Open in Browser") { NSWorkspace.shared.open(url) }
+                        if item.url.flatMap(URL.init(string:)) != nil {
+                            Button("Open in Browser") { open(item) }
                         }
                         Button("Edit…") { editing = item }
                         Divider()
                         Button("Remove", role: .destructive) { store.remove(item) }
                     }
-                    .onTapGesture(count: 2) { editing = item }
+                    .onTapGesture(count: 2) { open(item) }
             }
         }
     }
