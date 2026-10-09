@@ -1,0 +1,152 @@
+openapi: 3.0.3
+info:
+  title: Watcher local API
+  version: "1"
+  description: |
+    Localhost-only API exposed by the headless Watcher engine (`python -m watcher.api`).
+    UI shells (SwiftUI on macOS, a future Windows app, the Tk GUI) are clients of this contract.
+
+    **Launch handshake.** On startup the process prints one JSON line to stdout:
+    `{"port": 51234, "token": "..."}`. Connect to `http://127.0.0.1:<port>` and send
+    `Authorization: Bearer <token>` on every request. Pass `--exit-on-stdin-close` so the engine
+    exits when the launching process dies, and `--port N` to pin the port. Supply your own token
+    via the `WATCHER_API_TOKEN` environment variable. Logs go to stderr/log file, never stdout.
+
+    **Security.** Binds to 127.0.0.1 only; requests with a non-loopback `Host` header get 403.
+    Errors are `{"error": "message"}`.
+servers:
+  - url: http://127.0.0.1:{port}
+    variables:
+      port: {default: "0"}
+security:
+  - bearer: []
+paths:
+  /v1/health:
+    get:
+      summary: Liveness and app version
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {type: object, properties: {status: {type: string}, version: {type: string}}}}}}
+  /v1/state:
+    get:
+      summary: Everything needed to render a UI from scratch
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/State"}}}}
+  /v1/watchers:
+    get:
+      summary: List watchers
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Watcher"}}}}}
+    post:
+      summary: Add a watcher; the type is auto-detected from the URL
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [url], properties: {url: {type: string}, label: {type: string}, notes: {type: string}}}}}
+      responses:
+        "201": {description: Created, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}
+        "400": {description: Missing or mistyped field}
+        "422": {description: URL not recognized or rejected}
+  /v1/watchers/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+    get:
+      summary: Get one watcher
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}}
+    patch:
+      summary: Edit url, label and/or notes (omitted fields are kept). Changing the URL resets status.
+      requestBody:
+        content: {application/json: {schema: {type: object, properties: {url: {type: string}, label: {type: string}, notes: {type: string}}}}}
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}, "422": {description: URL rejected}}
+    delete:
+      summary: Stop watching
+      responses: {"204": {description: Removed}, "404": {description: Unknown watcher}}
+  /v1/watchers/{id}/acknowledge:
+    parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+    post:
+      summary: Mark the current actionable (success/failure) result as seen
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}}
+  /v1/poll:
+    post:
+      summary: Poll every watcher now
+      responses: {"202": {description: Accepted}}
+  /v1/settings:
+    get:
+      summary: Current settings
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Settings"}}}}}
+    patch:
+      summary: Partially update settings
+      requestBody:
+        content: {application/json: {schema: {$ref: "#/components/schemas/SettingsPatch"}}}
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Settings"}}}}, "422": {description: Unknown key or invalid value}}
+  /v1/update/dismiss:
+    post:
+      summary: Dismiss the update banner for a version
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [version], properties: {version: {type: string}}}}}
+      responses: {"204": {description: Dismissed}, "400": {description: Missing version}}
+  /v1/shutdown:
+    post:
+      summary: Ask the engine process to exit
+      responses: {"202": {description: Accepted}}
+  /v1/events:
+    get:
+      summary: Server-Sent Events stream
+      description: |
+        First event is `state` (same payload as `/v1/state`). Afterwards, one event per change;
+        each `data` is JSON with a `type` field matching the event name:
+        `watcher_added` / `watcher_updated` (`watcher`), `watcher_removed` (`id`),
+        `settings_changed` (`settings`), `update_available` (`version`, `url`, `name`),
+        `notification` (`title`, `message`, `id`). A `: keepalive` comment is sent every 15s.
+
+        `notification` is emitted for every newly actionable result. The engine also shows native
+        notifications itself unless it was embedded with `deliver_notifications=False`; a native UI
+        shell that wants to own notifications should use that and listen for this event.
+      responses: {"200": {description: Event stream, content: {text/event-stream: {schema: {type: string}}}}}
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+  schemas:
+    Watcher:
+      type: object
+      properties:
+        id: {type: string}
+        type: {type: string, enum: [jenkins, github_pr, github_actions_run]}
+        label: {type: string}
+        notes: {type: string}
+        url: {type: string, nullable: true}
+        status: {type: string, enum: [unknown, idle, building, success, failure, error]}
+        detail: {type: string}
+        last_checked: {type: number, nullable: true, description: Unix seconds; null if never checked}
+        unacknowledged: {type: boolean, description: Actionable result still awaiting acknowledgment}
+    Settings:
+      type: object
+      properties:
+        mode: {type: string, enum: [At Desk, Away]}
+        ntfy_server: {type: string}
+        ntfy_topic: {type: string}
+        poll_interval: {type: number, minimum: 1}
+        renotify_on_restart: {type: boolean}
+        modes: {type: array, items: {type: string}}
+        font_scale: {type: number, description: UI-only preference, persisted for clients}
+        always_on_top: {type: boolean, description: UI-only preference, persisted for clients}
+        update_dismissed_version: {type: string, description: UI-only preference, persisted for clients}
+    SettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        mode: {type: string, enum: [At Desk, Away]}
+        ntfy_server: {type: string}
+        ntfy_topic: {type: string}
+        poll_interval: {type: number, minimum: 1}
+        renotify_on_restart: {type: boolean}
+        font_scale: {type: number}
+        always_on_top: {type: boolean}
+        update_dismissed_version: {type: string}
+    State:
+      type: object
+      properties:
+        watchers: {type: array, items: {$ref: "#/components/schemas/Watcher"}}
+        settings: {$ref: "#/components/schemas/Settings"}
+        update:
+          type: object
+          nullable: true
+          properties: {version: {type: string}, url: {type: string}, name: {type: string}}
