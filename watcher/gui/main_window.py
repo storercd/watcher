@@ -111,6 +111,48 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+class _Tooltip:
+    """Small hover tooltip; `text` may be a string or a callable returning one."""
+
+    DELAY_MS = 500
+
+    def __init__(self, widget: tk.Widget, text) -> None:
+        self.widget = widget
+        self.text = text
+        self._after_id = None
+        self._tip: Optional[tk.Toplevel] = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _event=None) -> None:
+        self._hide()
+        self._after_id = self.widget.after(self.DELAY_MS, self._show)
+
+    def _show(self) -> None:
+        self._after_id = None
+        text = self.text() if callable(self.text) else self.text
+        tip = tk.Toplevel(self.widget)
+        tip.wm_overrideredirect(True)
+        tip.attributes("-topmost", True)
+        tk.Label(
+            tip, text=text, bg="#ffffe0", fg="black", relief=tk.SOLID, borderwidth=1,
+            padx=6, pady=2, font=(FONT_FAMILY, 11),
+        ).pack()
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        tip.wm_geometry(f"+{x}+{y}")
+        self._tip = tip
+
+    def _hide(self, _event=None) -> None:
+        if self._after_id is not None:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+
 def _make_label_button(
     parent: tk.Widget,
     text: str,
