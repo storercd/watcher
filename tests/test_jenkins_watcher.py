@@ -291,6 +291,7 @@ class TestJenkinsWatcherCheck:
 
 
 def test_normalize_strips_console_and_other_subpages():
+    """Any sub-page under a job normalizes to the job URL."""
     base = "http://j.example/job/MAPS/job/MapFlow/job/map_update"
     for suffix in ("/357/console", "/357/parameters/", "/lastBuild/consoleText", "/configure", "/357/console?x=1"):
         assert _normalize_job_url(base + suffix) == base
