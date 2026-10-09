@@ -11,22 +11,22 @@ you when they become actionable (e.g. a build finishes or all checks pass).
   watching, with a live status dot (idle / building / success / failure /
   error) and the last-checked time for each.
 - Polls each watched item on a background timer (default every 15s) without
-  blocking the GUI.
+  blocking the UI.
 - Detects state transitions — e.g. a Jenkins job going from *building* to
   *success*/*failure*, a GitHub PR's checks going from running to
   passed/failed, or a GitHub Actions run completing — and fires a
   notification once per newly completed run, not on every poll.
 - When a watched item finishes (success, failure, or aborted), its whole row
   turns bright green/red and keeps notifying on every app restart until you
-  click the row to acknowledge it — so a finished build can't be missed.
+  click **Got it** to acknowledge it — so a finished build can't be missed.
 - Fires a native macOS notification (via `osascript`/`display notification`,
   no extra dependency) when something becomes actionable.
 - Has a "Mode" dropdown (**At Desk** / **Away**) that controls which
   notifier(s) fire. "At Desk" uses native macOS notifications; "Away"
   publishes to a configurable [ntfy](https://ntfy.sh/) topic so you can get
   a push notification on your phone via the ntfy app.
-- Has a **⚙** settings button in the title bar for configuring the ntfy
-  server and topic used by "Away" mode.
+- Has a Settings window (⌘,) for the ntfy server and topic used by "Away"
+  mode, polling interval, text size and keep-on-top.
 - Saves everything you add to `~/.watcher/config.json` so your watchers
   survive an app restart.
 
@@ -67,55 +67,29 @@ bumped by hand in `watcher/__init__.py` only for notable milestones.
 
 ## Running it
 
-If you'd rather run from source (e.g. to make changes):
-
-Requires Python 3.9+ with Tkinter (ships with the standard python.org macOS
-installer and most Linux distro Python packages; on some minimal Linux
-installs you may need `apt install python3-tk` or similar).
+If you'd rather run from source (e.g. to make changes). This needs Python
+3.9+ and Swift 5.9+ (Xcode or the Command Line Tools):
 
 ```bash
-python3 main.py
-```
-
-### Native SwiftUI app (macOS)
-
-`macos/` is a SwiftUI app that launches the Python engine as a sidecar and
-talks to it over the local API (see below). It needs Swift 5.9+ (Xcode or the
-Command Line Tools):
-
-```bash
+pip install -r requirements.txt
 cd macos && WATCHER_REPO=.. swift run WatcherApp   # run from source
 ./scripts/build_native_app.sh                      # build dist/Watcher.app
 ```
 
-When run from source it finds the repo (or `WATCHER_REPO`) and uses its
-`.venv`/`WATCHER_PYTHON`/`python3`; the built app embeds a frozen copy of the
-engine instead. Notifications (including Away-mode ntfy) are still delivered
-by the engine. The release workflow publishes this native build.
+`macos/` is a SwiftUI app that launches the Python engine as a sidecar and
+talks to it over the local API (see below). When run from source it finds the
+repo (or `WATCHER_REPO`) and uses its `.venv`/`WATCHER_PYTHON`/`python3`; the
+built app embeds a frozen copy of the engine instead. Notifications
+(including Away-mode ntfy) are delivered by the engine.
 
-### Pinning it to the macOS Dock
-
-Running `python3 main.py` directly gives Watcher the generic Python rocket
-icon and no stable Dock/app identity, so it can't be pinned. To fix that
-without leaving Python, build a self-contained `Watcher.app` with
-[PyInstaller](https://pyinstaller.org/) (installed via `requirements.txt`):
-
-```bash
-pip install -r requirements.txt   # installs PyInstaller, among other deps
-./scripts/build_macos_app.sh            # builds dist/Watcher.app
-./scripts/build_macos_app.sh ~/Applications   # or build straight into /Applications
-```
-
-Then drag `Watcher.app` into the Dock (or `/Applications`) like any other
-app. The build uses a project-local `.venv`/`venv` interpreter if one
-exists, otherwise `python3` on `PATH`. Re-run the script after any code
-change, or if you move the repo or switch interpreters. See
-`packaging/macos/Watcher.icns` for the bundled icon.
+The build script uses a project-local `.venv`/`venv` interpreter if one
+exists, otherwise `python3` on `PATH`. Drag the resulting `Watcher.app` into
+the Dock or `/Applications`. See `packaging/macos/Watcher.icns` for the icon.
 
 From the window:
 
-- Click **+** to add a watcher, then choose **Jenkins Job**, **GitHub PR**,
-  or **GitHub Actions Run**.
+- Click **+** and paste a Jenkins job, GitHub PR or GitHub Actions run URL;
+  the type is detected from the URL.
   - Jenkins: enter the job URL (e.g. `https://jenkins.example.com/job/my-job`)
     and an optional label.
   - GitHub PR: enter the PR URL (e.g.
@@ -124,11 +98,11 @@ From the window:
   - GitHub Actions Run: enter the run URL (e.g.
     `https://github.com/owner/repo/actions/runs/123456`) and an optional
     label. Also uses your existing `gh` CLI login — see below.
-- Click **−** next to a watcher to remove it.
-- When a row turns green/red, click anywhere on it to acknowledge the
-  finished build and clear the highlight.
-- Click the 📌 toolbar button to toggle keeping the window on top of others (off by default; remembered).
-- Click **×** to close (this also saves your current config).
+- Right-click a row to open it in the browser, edit it, or remove it;
+  double-click opens it in the browser.
+- When a row turns green/red, click **Got it** to acknowledge the finished
+  build and clear the highlight.
+- **Settings** (⌘,) has text size, keep-window-on-top, polling and ntfy options.
 
 The window is unauthenticated/anonymous-access only for Jenkins right now —
 no credentials are sent, so the job must allow anonymous read access to its
@@ -185,11 +159,6 @@ watcher/
     macos.py        # MacOSNotifier (osascript "display notification")
     away.py         # AwayNotifier (publishes to a configurable ntfy topic)
     router.py       # NotificationRouter: mode -> notifier(s) dispatch
-  gui/
-    main_window.py        # the main window (optional pin-on-top), polling loop
-    add_watcher_dialog.py # watcher-type picker + per-type "Add ... Watcher" dialogs
-    settings_dialog.py    # settings dialog (ntfy server/topic for Away mode)
-main.py             # entrypoint: python main.py
 tests/
   test_jenkins_watcher.py    # unit tests for Jenkins status + transition logic
   test_github_pr_watcher.py  # unit tests for GitHub PR status + transition logic
@@ -204,9 +173,9 @@ docs/
 ## Headless engine and local API
 
 Everything except drawing the window lives in `watcher.core.engine.Engine`;
-the Tk GUI is a thin client of it. The same engine can run on its own and be
+the SwiftUI app is a thin client of it. The engine runs on its own and is
 driven over a localhost-only HTTP/JSON API (with a Server-Sent Events stream),
-so a native UI (e.g. SwiftUI on macOS, or a future Windows app) can reuse it:
+so another native UI (e.g. a future Windows app) can reuse it:
 
 ```bash
 python -m watcher.api --exit-on-stdin-close
@@ -220,7 +189,7 @@ Every request needs `Authorization: Bearer <token>`. See
 
 Watcher is built so that new "things to watch" (AWS Step Functions, a
 filesystem path, a CI pipeline on another platform, ...) can be added without
-touching the GUI or scheduler.
+touching the UI or scheduler.
 
 To add a new watcher type:
 
@@ -234,10 +203,10 @@ To add a new watcher type:
    `@register` from `watcher.core.registry` so the config loader can
    reconstruct it on startup.
 3. Import the new module somewhere that's loaded at startup (see how
-   `gui/main_window.py` imports `watcher.watchers.jenkins` purely for its
+   `core/engine.py` imports `watcher.watchers.jenkins` purely for its
    registration side effect).
 
-The scheduler, GUI, and config layer only ever interact with the `Watcher`
+The scheduler, engine, and config layer only ever interact with the `Watcher`
 base class — they never need to know about Jenkins (or any other) specifics.
 
 Notifiers follow the same pattern: subclass `watcher.notifiers.base.Notifier`
@@ -275,10 +244,7 @@ workflow (`.github/workflows/ci.yml`), across Python 3.9–3.12.
   the public `ntfy.sh`) and the user to subscribe to the configured topic in
   the ntfy app on their phone; there's no in-app verification that the topic
   is actually being received.
-- Poll interval is currently a single global value for all watchers
-  (`~/.watcher/config.json` -> `poll_interval`), not configurable in the GUI
-  yet.
-- Frameless window dragging/always-on-top behavior has been developed and
-  tested on macOS; other platforms may need minor Tkinter attribute tweaks
-  (e.g. `-topmost` is cross-platform, but window-manager chrome removal via
-  `overrideredirect` can behave differently on Linux).
+- Poll interval is a single global value for all watchers (set in Settings),
+  not per watcher.
+- The UI is macOS-only for now; the engine and its API (`docs/api.yaml`) are
+  platform-neutral, so a Windows UI could be added as another client.
