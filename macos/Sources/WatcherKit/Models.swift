@@ -29,9 +29,13 @@ public struct Settings: Codable, Equatable, Sendable {
     public var pollInterval: Double
     public var renotifyOnRestart: Bool
     public var modes: [String]
+    public var fontScale: Double
+    public var alwaysOnTop: Bool
 
     enum CodingKeys: String, CodingKey {
         case mode
+        case fontScale = "font_scale"
+        case alwaysOnTop = "always_on_top"
         case ntfyServer = "ntfy_server"
         case ntfyTopic = "ntfy_topic"
         case pollInterval = "poll_interval"
@@ -41,14 +45,31 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public init(
         mode: String = "At Desk", ntfyServer: String = "", ntfyTopic: String = "",
-        pollInterval: Double = 30, renotifyOnRestart: Bool = false, modes: [String] = ["At Desk", "Away"]
+        pollInterval: Double = 30, renotifyOnRestart: Bool = false, modes: [String] = ["At Desk", "Away"],
+        fontScale: Double = 1.0, alwaysOnTop: Bool = false
     ) {
+        self.fontScale = fontScale
+        self.alwaysOnTop = alwaysOnTop
         self.mode = mode
         self.ntfyServer = ntfyServer
         self.ntfyTopic = ntfyTopic
         self.pollInterval = pollInterval
         self.renotifyOnRestart = renotifyOnRestart
         self.modes = modes
+    }
+}
+
+extension Settings {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decode(String.self, forKey: .mode)
+        ntfyServer = try c.decode(String.self, forKey: .ntfyServer)
+        ntfyTopic = try c.decode(String.self, forKey: .ntfyTopic)
+        pollInterval = try c.decode(Double.self, forKey: .pollInterval)
+        renotifyOnRestart = try c.decode(Bool.self, forKey: .renotifyOnRestart)
+        modes = try c.decode([String].self, forKey: .modes)
+        fontScale = try c.decodeIfPresent(Double.self, forKey: .fontScale) ?? 1.0
+        alwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
     }
 }
 

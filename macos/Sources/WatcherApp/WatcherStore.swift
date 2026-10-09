@@ -76,8 +76,16 @@ final class WatcherStore: ObservableObject {
         case .notification:
             NSApp.requestUserAttention(.criticalRequest)
         }
+        applyWindowLevel()
         NSApp.dockTile.badgeLabel = unacknowledgedCount > 0 ? "\(unacknowledgedCount)" : nil
     }
+
+    private func applyWindowLevel() {
+        let level: NSWindow.Level = settings.alwaysOnTop ? .floating : .normal
+        for window in NSApp.windows where window.canBecomeMain { window.level = level }
+    }
+
+    func setSettings(_ patch: [String: Any]) { run { try await $0.updateSettings(patch) } }
 
     private func run(_ operation: @escaping (APIClient) async throws -> Void) {
         guard let client else { return }

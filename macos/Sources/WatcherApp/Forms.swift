@@ -63,6 +63,18 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Stepper(
+                    "Text size: \(Int((store.settings.fontScale * 100).rounded()))%",
+                    value: Binding(
+                        get: { store.settings.fontScale },
+                        set: { store.setSettings(["font_scale": ($0 * 10).rounded() / 10]) }),
+                    in: 0.7...2.0, step: 0.1)
+                Toggle(
+                    "Keep window on top",
+                    isOn: Binding(
+                        get: { store.settings.alwaysOnTop }, set: { store.setSettings(["always_on_top": $0]) }))
+            }
             Section("Polling") {
                 TextField("Seconds between checks", value: $interval, format: .number)
                 Toggle("Notify again for results that finished before the app restarted", isOn: $renotify)

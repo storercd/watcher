@@ -78,17 +78,21 @@ struct WatcherRow: View {
     @EnvironmentObject var store: WatcherStore
     let item: WatcherItem
 
+    private func font(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size * store.settings.fontScale, weight: weight)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon).foregroundStyle(color).font(.title3).frame(width: 22)
+            Image(systemName: icon).foregroundStyle(color).font(font(15)).frame(width: 22 * store.settings.fontScale)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.label).font(.headline)
+                Text(item.label).font(font(13, weight: .semibold))
                 Text(item.detail.isEmpty ? item.status.rawValue.capitalized : item.detail)
-                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                if !item.notes.isEmpty { Text(item.notes).font(.caption).foregroundStyle(.tertiary) }
+                    .font(font(11)).foregroundStyle(.secondary).lineLimit(2)
+                if !item.notes.isEmpty { Text(item.notes).font(font(10)).foregroundStyle(.tertiary) }
                 if let checked = item.lastChecked {
                     Text("Checked \(Date(timeIntervalSince1970: checked), style: .relative) ago")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(font(10)).foregroundStyle(.tertiary)
                 }
             }
             Spacer()
