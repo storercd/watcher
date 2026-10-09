@@ -197,6 +197,10 @@ class MainWindow:
         # Explicitly re-raise/focus it so the Dock icon reliably brings the
         # window to the top instead of appearing to do nothing.
         self.root.bind("<<ReopenApplication>>", self._on_reopen_application)
+        # Cmd+Tab (and Dock clicks that don't send a reopen event) activate
+        # the app without <<ReopenApplication>>, so also watch for activation
+        # via Cocoa when PyObjC is available.
+        self._install_activation_observer()
 
         self.scheduler.set_watchers(list(self.watchers.values()))
         self.scheduler.start()
@@ -277,6 +281,22 @@ class MainWindow:
         self.root.lift()
         self.root.focus_force()
 
+    def _install_activation_observer(self) -> None:
+        try:
+            from Foundation import NSNotificationCenter  # noqa: PLC0415 - optional, lazy dep
+        except ImportError:
+            return
+
+        def _on_active(_notification) -> None:
+            self.root.after(0, self._on_reopen_application)
+
+        # Keep a reference so the observer isn't garbage-collected.
+        self._activation_observer = (
+            NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+                "NSApplicationDidBecomeActiveNotification", None, None, _on_active
+            )
+        )
+
     def _on_zoom(self, delta: float) -> None:
         self.manual_font_scale = _clamp(
             self.manual_font_scale + delta, MANUAL_SCALE_MIN, MANUAL_SCALE_MAX
@@ -286,10 +306,14 @@ class MainWindow:
 
     def _build_ui(self) -> None:
         self.root.title("Watcher")
-        self.root.attributes("-topmost", True)
         self.root.geometry(DEFAULT_WINDOW_SIZE)
         self.root.configure(bg="#1e1e1e")
         self.root.overrideredirect(True)  # frameless-ish window
+        # Must come after overrideredirect(): on macOS that call recreates the
+        # native window and resets its level. Re-apply once the window is
+        # actually mapped, too, since the level can be dropped before then.
+        self.root.attributes("-topmost", True)
+        self.root.after_idle(self._on_reopen_application)
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 
         # Title bar (also the drag handle) with close button and mode selector.
