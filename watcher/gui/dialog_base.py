@@ -4,7 +4,10 @@ from tkinter import simpledialog
 
 
 class OnTopDialog(simpledialog.Dialog):
+    """A modal dialog that floats above its parent when the parent is pinned."""
+
     def buttonbox(self):
+        """Build the buttons, then schedule raising the dialog if the parent is topmost."""
         super().buttonbox()
         if self.master.winfo_toplevel().attributes("-topmost"):
             # Dialog.__init__ blocks in a modal wait right after this, and a

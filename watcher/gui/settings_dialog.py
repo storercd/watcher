@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import tkinter as tk
-from watcher.gui.dialog_base import OnTopDialog
 from typing import Optional, Tuple
+
+from watcher.gui.dialog_base import OnTopDialog
 
 
 class SettingsDialog(OnTopDialog):

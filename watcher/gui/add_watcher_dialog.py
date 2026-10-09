@@ -12,8 +12,9 @@ an existing watcher - not just its follow-up note.
 from __future__ import annotations
 
 import tkinter as tk
-from watcher.gui.dialog_base import OnTopDialog
 from typing import Optional, Tuple
+
+from watcher.gui.dialog_base import OnTopDialog
 
 
 def _build_watcher_form(master, dialog, initial_url: str = "", initial_label: str = "", initial_notes: str = ""):

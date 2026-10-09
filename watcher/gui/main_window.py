@@ -340,9 +340,10 @@ class MainWindow:
 
     def _disable_native_fullscreen(self) -> None:
         """
-        Make the green title-bar button zoom instead of entering native
-        full screen, which crashes Tk 8.6 on macOS (fatal error inside
-        setStyleMask during the transition).
+        Disable macOS native full screen so the green button zooms instead.
+
+        Native full screen crashes Tk 8.6 (fatal error inside setStyleMask
+        during the transition).
         """
         try:
             from AppKit import NSApplication  # noqa: PLC0415 - optional, lazy dep
