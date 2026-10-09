@@ -74,6 +74,7 @@ If you'd rather run from source (e.g. to make changes). This needs Python
 pip install -r requirements.txt
 cd macos && WATCHER_REPO=.. swift run WatcherApp   # run from source
 ./scripts/build_native_app.sh                      # build dist/Watcher.app
+./scripts/build_and_run.sh                         # build, then launch it
 ```
 
 `macos/` is a SwiftUI app that launches the Python engine as a sidecar and
