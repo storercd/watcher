@@ -21,35 +21,28 @@ from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 10
 
-# Matches a trailing build-number segment, e.g. ".../my-job/645" -> ".../my-job".
-# Users sometimes paste the URL of a specific build (copied from the browser
-# while looking at that build) instead of the job itself; a build-level
-# api/json has a completely different shape (no "color"/"lastBuild") so it
-# must be normalized back to the job URL or every check() silently reports
-# Status.UNKNOWN and build completions are never noticed.
-_TRAILING_BUILD_NUMBER_RE = re.compile(r"/\d+$")
+# Matches the job portion of any Jenkins URL: everything up to and including
+# the last consecutive "/job/<name>" pair (folders nest as /job/a/job/b).
+# Users paste URLs of sub-pages (a build, its /console, /parameters, ...)
+# while looking at a job; those have no job-level api/json shape (or 404), so
+# they are normalized back to the job URL.
+_JOB_URL_RE = re.compile(r"^(.*?/job/[^/]+(?:/job/[^/]+)*)(?:[/?#].*)?$")
 
 
 def _normalize_job_url(job_url: str) -> str:
     """
-    Strip a trailing build number from ``job_url``, if present.
+    Reduce any URL under a Jenkins job to the job URL itself.
 
-    A URL like ``.../job/my-job/645`` is normalized to ``.../job/my-job``.
-    A job whose own name happens to be numeric (``.../job/2024``) is left
-    alone, since Jenkins build numbers never sit directly under a ``job``
-    segment.
+    ``.../job/my-job/645/console`` and ``.../job/my-job/645`` both become
+    ``.../job/my-job``. URLs without a ``/job/<name>`` segment are returned
+    with only trailing slashes stripped.
 
     Returns:
-        The job-level URL, with any trailing build-number segment removed.
+        The job-level URL.
     """
-    stripped = job_url.rstrip("/")
-    match = _TRAILING_BUILD_NUMBER_RE.search(stripped)
-    if not match:
-        return stripped
-    before = stripped[: match.start()]
-    if before.endswith("/job"):
-        return stripped
-    return before
+    stripped = job_url.strip().rstrip("/")
+    match = _JOB_URL_RE.match(stripped)
+    return match.group(1) if match else stripped
 
 
 def _fetch_job_json(job_url: str) -> Dict[str, Any]:
