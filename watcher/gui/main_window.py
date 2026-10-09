@@ -235,12 +235,16 @@ class MainWindow:
             for watcher in self.watchers.values():
                 watcher.forget_acknowledgment()
 
+        self._restore_pending = False
         self._build_ui()
 
         self.root.bind("<Configure>", self._on_root_configure)
-        # Tk re-applies its own collection behavior when the window is mapped.
-        for sequence in ("<Map>", "<FocusIn>"):
-            self.root.bind(sequence, lambda e: self._disable_native_fullscreen(), add="+")
+        # Tk re-applies its own collection behavior on window events. Do NOT
+        # bind <Map> here: when un-minimizing from the Dock, Cocoa delivers
+        # the map event from inside a native callback where Python's thread
+        # state isn't restorable, and any Python handler aborts the process
+        # (PyEval_RestoreThread fatal error).
+        self.root.bind("<FocusIn>", lambda e: self._disable_native_fullscreen(), add="+")
         self.root.after(300, self._disable_native_fullscreen)
 
         # On macOS, clicking the Dock icon of an already-running app sends a
@@ -250,6 +254,16 @@ class MainWindow:
         # actually restacking this window above whatever else is frontmost.
         # Explicitly re-raise/focus it so the Dock icon reliably brings the
         # window to the top instead of appearing to do nothing.
+        # Tk's Dock-click hook is the Tcl command ::tk::mac::ReopenApplication
+        # (not a virtual event), and its default does nothing for a minimized
+        # window. Override it in pure Tcl and defer a virtual event to the
+        # normal event loop, since running Python inside the native callback
+        # aborts the process.
+        self.root.tk.eval(
+            "proc ::tk::mac::ReopenApplication {} "
+            "{after idle {event generate . <<WatcherReopen>>}}"
+        )
+        self.root.bind("<<WatcherReopen>>", self._on_reopen_application)
         self.root.bind("<<ReopenApplication>>", self._on_reopen_application)
         # Cmd+Tab (and Dock clicks that don't send a reopen event) activate
         # the app without <<ReopenApplication>>, so also watch for activation
@@ -330,7 +344,24 @@ class MainWindow:
         focus; without it the app activates but the window can stay hidden
         behind other windows.
         """
-        self.root.deiconify()
+        # Cocoa is already un-minimizing the window when the Dock icon is
+        # clicked; calling deiconify() mid-animation crashes Tk. Let it
+        # finish and only touch the window once it's no longer iconic.
+        if self._restore_pending:
+            return
+        self._restore_pending = True
+        self.root.after(150, self._finish_reopen)
+
+    def _finish_reopen(self) -> None:
+        self._restore_pending = False
+        try:
+            if self.root.state() == "iconic":
+                # Dock icon click (not the minimized-window thumbnail):
+                # Cocoa won't restore it, so do it ourselves, outside the
+                # native callback.
+                self.root.deiconify()
+        except tk.TclError:
+            return
         self._disable_native_fullscreen()
         if self.pinned:
             self.root.attributes("-topmost", False)
@@ -351,6 +382,8 @@ class MainWindow:
             return
         fullscreen_primary, fullscreen_none = 1 << 7, 1 << 9
         for window in NSApplication.sharedApplication().windows():
+            if window.isMiniaturized():
+                continue
             behavior = window.collectionBehavior()
             window.setCollectionBehavior_((behavior & ~fullscreen_primary) | fullscreen_none)
 
