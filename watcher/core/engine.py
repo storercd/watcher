@@ -2,8 +2,8 @@
 Headless Watcher engine: everything the app does except draw a window.
 
 The engine owns the watchers, the polling scheduler, the notification router,
-config persistence and the update checker. UIs (the Tk GUI today, a native
-SwiftUI or Windows shell later) are thin clients: they call the command
+config persistence and the update checker. UIs (the native SwiftUI app today, a
+Windows shell later) are thin clients: they call the command
 methods here (directly in-process, or over the local HTTP API in
 ``watcher.api``) and subscribe to events to re-render.
 """
@@ -83,7 +83,7 @@ class Engine:
             version: The running app version, used for update checks.
             deliver_notifications: If True the engine fires notifications
                 itself from a background thread. A UI that must deliver them
-                on its own main thread (e.g. Tk, AppKit) passes False and
+                on its own main thread (e.g. AppKit) passes False and
                 reacts to ``notification`` events instead.
             check_updates: Whether to poll GitHub for newer releases.
         """

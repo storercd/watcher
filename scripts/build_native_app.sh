@@ -4,9 +4,6 @@
 # engine frozen with PyInstaller and embedded as a sidecar, which the app
 # launches on startup (see macos/Sources/WatcherKit/CoreProcess.swift).
 #
-# The older Tk build (scripts/build_macos_app.sh) also produces Watcher.app,
-# so the two overwrite each other if they share a destination directory.
-#
 # Usage:
 #   ./scripts/build_native_app.sh [destination-dir]   # defaults to ./dist
 #

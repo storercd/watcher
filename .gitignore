@@ -14,7 +14,7 @@ env/
 dist/
 build/
 
-# Generated at build time by scripts/build_macos_app.sh / the release
+# Generated at build time by scripts/build_native_app.sh / the release
 # workflow (embeds the auto-incrementing build number); never hand-edited.
 watcher/_build_version.py
 

@@ -4,7 +4,7 @@ info:
   version: "1"
   description: |
     Localhost-only API exposed by the headless Watcher engine (`python -m watcher.api`).
-    UI shells (SwiftUI on macOS, a future Windows app, the Tk GUI) are clients of this contract.
+    UI shells (SwiftUI on macOS, a future Windows app) are clients of this contract.
 
     **Launch handshake.** On startup the process prints one JSON line to stdout:
     `{"port": 51234, "token": "..."}`. Connect to `http://127.0.0.1:<port>` and send
