@@ -132,16 +132,21 @@ class _Tooltip:
     def _show(self) -> None:
         self._after_id = None
         text = self.text() if callable(self.text) else self.text
-        tip = tk.Toplevel(self.widget)
-        tip.wm_overrideredirect(True)
-        tip.attributes("-topmost", True)
-        tk.Label(
-            tip, text=text, bg="#ffffe0", fg="black", relief=tk.SOLID, borderwidth=1,
+        # A child label placed inside the window (not a separate Toplevel):
+        # separate tooltip windows get stacked beneath a floating window on macOS.
+        top = self.widget.winfo_toplevel()
+        tip = tk.Label(
+            top, text=text, bg="#ffffe0", fg="black", relief=tk.SOLID, borderwidth=1,
             padx=6, pady=2, font=(FONT_FAMILY, 11),
-        ).pack()
-        x = self.widget.winfo_rootx()
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-        tip.wm_geometry(f"+{x}+{y}")
+        )
+        tip.update_idletasks()
+        x = self.widget.winfo_rootx() - top.winfo_rootx()
+        y = self.widget.winfo_rooty() - top.winfo_rooty() + self.widget.winfo_height() + 4
+        x = max(0, min(x, top.winfo_width() - tip.winfo_reqwidth()))
+        if y + tip.winfo_reqheight() > top.winfo_height():
+            y = self.widget.winfo_rooty() - top.winfo_rooty() - tip.winfo_reqheight() - 4
+        tip.place(x=x, y=max(0, y))
+        tip.lift()
         self._tip = tip
 
     def _hide(self, _event=None) -> None:
@@ -174,15 +179,16 @@ def _make_label_button(
         The configured Label widget acting as a button.
     """
     btn = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, cursor="pointinghand", padx=4)
+    btn.rest_bg = bg
 
     def on_click(_event):
         command()
 
     def on_enter(_event):
-        btn.configure(bg=hover_bg or bg)
+        btn.configure(bg=hover_bg or btn.rest_bg)
 
     def on_leave(_event):
-        btn.configure(bg=bg)
+        btn.configure(bg=btn.rest_bg)
 
     btn.bind("<Button-1>", on_click)
     btn.bind("<Enter>", on_enter)
@@ -232,6 +238,10 @@ class MainWindow:
         self._build_ui()
 
         self.root.bind("<Configure>", self._on_root_configure)
+        # Tk re-applies its own collection behavior when the window is mapped.
+        for sequence in ("<Map>", "<FocusIn>"):
+            self.root.bind(sequence, lambda e: self._disable_native_fullscreen(), add="+")
+        self.root.after(300, self._disable_native_fullscreen)
 
         # On macOS, clicking the Dock icon of an already-running app sends a
         # "reopen" Apple Event, which Tk/Aqua surfaces as the virtual event
@@ -299,6 +309,7 @@ class MainWindow:
     def _on_root_configure(self, event: tk.Event) -> None:
         if event.widget is not self.root:
             return
+        self._disable_native_fullscreen()
         width = self.root.winfo_width()
         if width == self._last_scaled_width:
             return
@@ -320,11 +331,27 @@ class MainWindow:
         behind other windows.
         """
         self.root.deiconify()
+        self._disable_native_fullscreen()
         if self.pinned:
             self.root.attributes("-topmost", False)
             self.root.attributes("-topmost", True)
         self.root.lift()
         self.root.focus_force()
+
+    def _disable_native_fullscreen(self) -> None:
+        """
+        Make the green title-bar button zoom instead of entering native
+        full screen, which crashes Tk 8.6 on macOS (fatal error inside
+        setStyleMask during the transition).
+        """
+        try:
+            from AppKit import NSApplication  # noqa: PLC0415 - optional, lazy dep
+        except ImportError:
+            return
+        fullscreen_primary, fullscreen_none = 1 << 7, 1 << 9
+        for window in NSApplication.sharedApplication().windows():
+            behavior = window.collectionBehavior()
+            window.setCollectionBehavior_((behavior & ~fullscreen_primary) | fullscreen_none)
 
     def _install_activation_observer(self) -> None:
         try:
@@ -494,7 +521,9 @@ class MainWindow:
         self._save()
 
     def _update_pin_button(self) -> None:
-        self.pin_btn.configure(fg="white" if self.pinned else "#666666")
+        rest_bg = "#2e6fba" if self.pinned else "#2b2b2b"
+        self.pin_btn.rest_bg = rest_bg
+        self.pin_btn.configure(bg=rest_bg, fg="white" if self.pinned else "#888888")
 
     # ------------------------------------------------------------------
     # Watcher row management
