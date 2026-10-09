@@ -300,7 +300,7 @@ class Engine:
                 self.watchers[watcher_id] = watcher
                 self.scheduler.add_watcher(watcher)
             else:
-                watcher.label = new_label
+                watcher.label = new_label.strip() or watcher.default_label()
                 watcher.notes = new_notes
             self._save()
             snapshot = self.snapshot_watcher(watcher)
