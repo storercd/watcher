@@ -60,7 +60,7 @@ def _run_gh_run_view(owner: str, repo: str, run_id: str) -> Dict[str, Any]:
             fails for any other reason (its stderr is included in the
             message).
     """
-    fields = "status,conclusion,attempt,workflowName,displayTitle,url"
+    fields = "status,conclusion,attempt,workflowName,displayTitle,url,jobs"
     try:
         proc = subprocess.run(
             gh_command("run", "view", run_id, "--repo", f"{owner}/{repo}", "--json", fields),
@@ -86,9 +86,21 @@ def _run_gh_run_view(owner: str, repo: str, run_id: str) -> Dict[str, Any]:
         raise RuntimeError(f"Could not parse gh output: {exc}") from exc
 
 
-def _status_from_run(data: Dict[str, Any]) -> Tuple[Status, str, Optional[int]]:
+def _failed_jobs(data: Dict[str, Any]) -> list:
+    """Names of jobs that have already completed with a failing conclusion."""
+    return [
+        job.get("name") or "unnamed job"
+        for job in data.get("jobs") or []
+        if (job.get("conclusion") or "").upper() in _FAILING_CONCLUSIONS
+    ]
+
+
+def _status_from_run(data: Dict[str, Any], fail_fast: bool = False) -> Tuple[Status, str, Optional[int]]:
     """
     Translate a workflow run's ``gh run view`` JSON into a (Status, detail, attempt) tuple.
+
+    With ``fail_fast``, a still-running run is reported as a failure as soon
+    as any of its jobs has already failed.
 
     Returns:
         A tuple of (status, human-readable detail message, run attempt number).
@@ -97,6 +109,9 @@ def _status_from_run(data: Dict[str, Any]) -> Tuple[Status, str, Optional[int]]:
     status_raw = (data.get("status") or "").lower()
 
     if status_raw != "completed":
+        failed = _failed_jobs(data) if fail_fast else []
+        if failed:
+            return Status.FAILURE, f"Job failed: {', '.join(failed)} (run still in progress)", attempt
         label = status_raw.replace("_", " ") or "unknown"
         return Status.BUILDING, label.capitalize() or "Running", attempt
 
@@ -135,6 +150,7 @@ class GitHubActionsRunWatcher(Watcher):
         last_attempt: Optional[int] = None,
         acknowledged_attempt: Optional[int] = None,
         notes: str = "",
+        fail_fast: bool = True,
     ):
         """Initialize a GitHub Actions run watcher for the given run URL."""
         self.owner, self.repo, self.run_id = _parse_run_url(run_url)
@@ -149,6 +165,9 @@ class GitHubActionsRunWatcher(Watcher):
         # The attempt number of the last completed run we've seen, used to
         # detect a genuinely new completion (e.g. after a manual re-run).
         self.last_attempt = last_attempt
+        # Report the run as failed as soon as any job fails, even while other
+        # jobs are still running.
+        self.fail_fast = fail_fast
         # The attempt number the user has acknowledged (e.g. by clicking the
         # row). A completed attempt that doesn't match this is
         # "unacknowledged" and keeps notifying/highlighting across app
@@ -198,7 +217,7 @@ class GitHubActionsRunWatcher(Watcher):
             self.last_detail = str(exc)
             return CheckResult(status=Status.ERROR, detail=str(exc))
 
-        status, detail, attempt = _status_from_run(data)
+        status, detail, attempt = _status_from_run(data, self.fail_fast)
 
         unacknowledged = (
             status.is_actionable and attempt is not None and attempt != self.acknowledged_attempt
@@ -213,8 +232,8 @@ class GitHubActionsRunWatcher(Watcher):
         self._checked_since_start = True
 
         if attempt is not None and status != Status.BUILDING:
-            # Only "commit" the attempt number once the run has finished, so
-            # we don't miss a transition if we happen to poll mid-run.
+            # Only "commit" the attempt number once the run has finished (or
+            # failed fast), so we don't miss a transition if we poll mid-run.
             self.last_attempt = attempt
 
         self.last_status = status
@@ -248,6 +267,7 @@ class GitHubActionsRunWatcher(Watcher):
             "last_attempt": self.last_attempt,
             "acknowledged_attempt": self.acknowledged_attempt,
             "notes": self.notes,
+            "fail_fast": self.fail_fast,
         }
 
     @classmethod
@@ -265,4 +285,5 @@ class GitHubActionsRunWatcher(Watcher):
             last_attempt=data.get("last_attempt"),
             acknowledged_attempt=data.get("acknowledged_attempt"),
             notes=data.get("notes", ""),
+            fail_fast=data.get("fail_fast", True),
         )
