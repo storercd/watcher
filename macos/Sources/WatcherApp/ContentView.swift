@@ -69,6 +69,9 @@ struct ContentView: View {
         } else {
             List(store.watchers) { item in
                 WatcherRow(item: item)
+                    .contentShape(Rectangle())
+                    .onTapGesture { open(item) }
+                    .listRowInsets(EdgeInsets())
                     .listRowBackground(highlight(for: item))
                     .contextMenu {
                         if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
@@ -79,7 +82,6 @@ struct ContentView: View {
                         Divider()
                         Button("Remove", role: .destructive) { store.remove(item) }
                     }
-                    .onTapGesture(count: 2) { open(item) }
             }
         }
     }
@@ -112,7 +114,8 @@ struct WatcherRow: View {
                     .help("Mark this result as seen")
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
         .help(item.url ?? "")
     }
 
