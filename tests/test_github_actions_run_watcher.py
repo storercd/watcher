@@ -121,6 +121,36 @@ class TestGitHubActionsRunWatcherCheck:
         assert watcher.last_attempt == 1
 
     @patch("watcher.watchers.github_actions_run._run_gh_run_view")
+    def test_fail_fast_reports_failure_while_run_in_progress(self, mock_run):
+        """A failed job fails the run immediately, and completion doesn't re-notify."""
+        data = _run_data("in_progress")
+        data["jobs"] = [
+            {"name": "build", "status": "completed", "conclusion": "failure"},
+            {"name": "test", "status": "in_progress", "conclusion": ""},
+        ]
+        mock_run.return_value = data
+        watcher = self._make_watcher()
+
+        result = watcher.check()
+
+        assert result.status == Status.FAILURE
+        assert "build" in result.detail
+        assert result.newly_actionable is True
+
+        mock_run.return_value = _run_data("completed", "failure")
+        assert watcher.check().newly_actionable is False
+
+    @patch("watcher.watchers.github_actions_run._run_gh_run_view")
+    def test_fail_fast_disabled_stays_building(self, mock_run):
+        """With fail_fast off, a failed job doesn't affect an in-progress run."""
+        data = _run_data("in_progress")
+        data["jobs"] = [{"name": "build", "status": "completed", "conclusion": "failure"}]
+        mock_run.return_value = data
+        watcher = GitHubActionsRunWatcher(run_url=RUN_URL, fail_fast=False)
+
+        assert watcher.check().status == Status.BUILDING
+
+    @patch("watcher.watchers.github_actions_run._run_gh_run_view")
     def test_still_building_does_not_notify_or_advance_attempt(self, mock_run):
         """A run still in progress does not notify or advance the tracked attempt."""
         mock_run.return_value = _run_data("in_progress")
