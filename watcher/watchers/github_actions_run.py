@@ -87,7 +87,12 @@ def _run_gh_run_view(owner: str, repo: str, run_id: str) -> Dict[str, Any]:
 
 
 def _failed_jobs(data: Dict[str, Any]) -> list:
-    """Names of jobs that have already completed with a failing conclusion."""
+    """
+    Names of jobs that have already completed with a failing conclusion.
+
+    Returns:
+        A list of failed job names.
+    """
     return [
         job.get("name") or "unnamed job"
         for job in data.get("jobs") or []
