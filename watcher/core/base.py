@@ -25,12 +25,13 @@ class Status(str, Enum):
     BUILDING = "building"
     SUCCESS = "success"
     FAILURE = "failure"
+    APPROVAL_REQUIRED = "approval_required"  # workflow runs are waiting for someone to approve them
     ERROR = "error"  # watcher failed to reach the target (network error, etc.)
 
     @property
     def is_actionable(self) -> bool:
         """Whether this status represents something the user should look at."""
-        return self in (Status.SUCCESS, Status.FAILURE)
+        return self in (Status.SUCCESS, Status.FAILURE, Status.APPROVAL_REQUIRED)
 
 
 @dataclass

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from watcher.core.base import CheckResult, Status, Watcher
@@ -27,6 +28,12 @@ REQUEST_TIMEOUT_SECONDS = 20
 # Conclusions/states that count as a failing check.
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"}
 _FAILING_STATES = {"ERROR", "FAILURE"}
+
+# A Copilot session with no finish event after this long is treated as stalled
+# rather than masking a failure forever.
+COPILOT_SESSION_MAX_AGE = timedelta(hours=3)
+
+_COPILOT_START_EVENT = "copilot_work_started"
 
 _PR_URL_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)")
 
@@ -89,6 +96,123 @@ def _run_gh_pr_view(pr_url: str) -> Dict[str, Any]:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Could not parse gh output: {exc}") from exc
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    """Parse a GitHub ISO-8601 timestamp (``...Z``), returning None if absent/invalid."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _fetch_copilot_events(pr_url: str) -> List[Dict[str, Any]]:
+    """
+    Fetch the PR timeline's Copilot work start/finish events, oldest first.
+
+    Best-effort: any failure (missing gh, no access, bad output) yields an
+    empty list so the caller falls back to the plain check status.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return []
+    endpoint = f"repos/{match.group('owner')}/{match.group('repo')}/issues/{match.group('number')}/timeline"
+    jq = '.[] | select(.event | startswith("copilot_work")) | {event, created_at}'
+    try:
+        proc = subprocess.run(
+            gh_command("api", endpoint, "--paginate", "--jq", jq),
+            capture_output=True,
+            text=True,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0:
+        return []
+    events = []
+    for line in proc.stdout.splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events
+
+
+def _count_runs_awaiting_approval(pr_url: str, head_sha: str) -> int:
+    """
+    Count workflow runs for ``head_sha`` that are blocked waiting for approval.
+
+    These (e.g. first-time-contributor or Copilot-pushed runs) typically
+    create no check runs, so they never appear in ``statusCheckRollup``.
+    Best-effort: any failure yields 0.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return 0
+    endpoint = (
+        f"repos/{match.group('owner')}/{match.group('repo')}/actions/runs"
+        f"?head_sha={head_sha}&status=action_required&per_page=100"
+    )
+    try:
+        proc = subprocess.run(
+            gh_command("api", endpoint, "--jq", ".total_count"),
+            capture_output=True,
+            text=True,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 0
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int(proc.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def _latest_failure_time(rollup: List[Dict[str, Any]]) -> Optional[datetime]:
+    """Latest completion time among failing checks, or None if unknown."""
+    times = []
+    for check in rollup:
+        resolved, passing = _check_outcome(check)
+        if resolved and not passing:
+            ts = _parse_ts(check.get("completedAt") or check.get("startedAt"))
+            if ts:
+                times.append(ts)
+    return max(times) if times else None
+
+
+def _active_copilot_session(
+    events: List[Dict[str, Any]],
+    failed_at: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    """
+    Return the start time of an in-progress Copilot session that postdates the failure.
+
+    A session is active when the latest Copilot event is a start (no later
+    finish), it began after the failing checks completed (when known), and
+    it is not older than ``COPILOT_SESSION_MAX_AGE``.
+    """
+    timed = []
+    for event in events:
+        ts = _parse_ts(event.get("created_at"))
+        if ts:
+            timed.append((ts, event.get("event")))
+    if not timed:
+        return None
+    started_at, event_name = max(timed, key=lambda t: t[0])
+    if event_name != _COPILOT_START_EVENT:
+        return None
+    if failed_at and started_at < failed_at:
+        return None
+    if (now or datetime.now(timezone.utc)) - started_at > COPILOT_SESSION_MAX_AGE:
+        return None
+    return started_at
 
 
 def _check_outcome(check: Dict[str, Any]) -> Tuple[bool, bool]:
@@ -227,10 +351,32 @@ class GitHubPRWatcher(Watcher):
             return CheckResult(status=Status.ERROR, detail=str(exc))
 
         head_sha = data.get("headRefOid")
-        status, detail = _status_from_checks(data.get("statusCheckRollup") or [])
+        rollup = data.get("statusCheckRollup") or []
+        status, detail = _status_from_checks(rollup)
+
+        awaiting_approval = _count_runs_awaiting_approval(self.pr_url, head_sha) if head_sha else 0
+
+        if awaiting_approval:
+            # Workflow runs (e.g. from Copilot's push) are blocked until
+            # someone approves them, so the user has to act - even if a
+            # Copilot session is still running.
+            status = Status.APPROVAL_REQUIRED
+            detail = f"{awaiting_approval} workflow run(s) awaiting approval"
+        elif status == Status.FAILURE and _active_copilot_session(
+            _fetch_copilot_events(self.pr_url), _latest_failure_time(rollup)
+        ):
+            # Copilot is still working on it, so this isn't actionable yet.
+            status, detail = Status.BUILDING, f"Copilot is working on a fix ({detail})"
+
+        # Approval-required is tracked under its own key so that once the run
+        # is approved, the resulting success/failure on the same commit still
+        # notifies instead of looking like an already-seen state.
+        state_key = None
+        if head_sha is not None:
+            state_key = f"{head_sha}#approval" if status == Status.APPROVAL_REQUIRED else head_sha
 
         unacknowledged = (
-            status.is_actionable and head_sha is not None and head_sha != self.acknowledged_head_sha
+            status.is_actionable and state_key is not None and state_key != self.acknowledged_head_sha
         )
         # Notify when checks newly resolve on a new commit (head_sha
         # advanced), or - on the first poll since the app started - when a
@@ -238,14 +384,14 @@ class GitHubPRWatcher(Watcher):
         # unacknowledged, so adding an already-finished PR still notifies
         # instead of silently requiring a new commit first.
         newly_actionable = unacknowledged and (
-            head_sha != self.last_head_sha or not self._checked_since_start
+            state_key != self.last_head_sha or not self._checked_since_start
         )
         self._checked_since_start = True
 
-        if head_sha is not None and status != Status.BUILDING:
+        if state_key is not None and status != Status.BUILDING:
             # Only "commit" the head SHA once checks have finished, so we
             # don't miss a transition if we happen to poll mid-run.
-            self.last_head_sha = head_sha
+            self.last_head_sha = state_key
 
         self.last_status = status
         self.last_detail = detail
