@@ -99,7 +99,12 @@ def _run_gh_pr_view(pr_url: str) -> Dict[str, Any]:
 
 
 def _parse_ts(value: Optional[str]) -> Optional[datetime]:
-    """Parse a GitHub ISO-8601 timestamp (``...Z``), returning None if absent/invalid."""
+    """
+    Parse a GitHub ISO-8601 timestamp (``...Z``).
+
+    Returns:
+        The parsed datetime, or None if absent/invalid.
+    """
     if not value:
         return None
     try:
@@ -114,6 +119,9 @@ def _fetch_copilot_events(pr_url: str) -> List[Dict[str, Any]]:
 
     Best-effort: any failure (missing gh, no access, bad output) yields an
     empty list so the caller falls back to the plain check status.
+
+    Returns:
+        The ``{event, created_at}`` dicts for Copilot work events.
     """
     match = _PR_URL_RE.search(pr_url)
     if not match:
@@ -148,6 +156,9 @@ def _count_runs_awaiting_approval(pr_url: str, head_sha: str) -> int:
     These (e.g. first-time-contributor or Copilot-pushed runs) typically
     create no check runs, so they never appear in ``statusCheckRollup``.
     Best-effort: any failure yields 0.
+
+    Returns:
+        The number of runs awaiting approval.
     """
     match = _PR_URL_RE.search(pr_url)
     if not match:
@@ -175,7 +186,12 @@ def _count_runs_awaiting_approval(pr_url: str, head_sha: str) -> int:
 
 
 def _latest_failure_time(rollup: List[Dict[str, Any]]) -> Optional[datetime]:
-    """Latest completion time among failing checks, or None if unknown."""
+    """
+    Find the latest completion time among failing checks.
+
+    Returns:
+        The latest failure time, or None if unknown.
+    """
     times = []
     for check in rollup:
         resolved, passing = _check_outcome(check)
@@ -192,11 +208,14 @@ def _active_copilot_session(
     now: Optional[datetime] = None,
 ) -> Optional[datetime]:
     """
-    Return the start time of an in-progress Copilot session that postdates the failure.
+    Find an in-progress Copilot session that postdates the failure.
 
     A session is active when the latest Copilot event is a start (no later
     finish), it began after the failing checks completed (when known), and
     it is not older than ``COPILOT_SESSION_MAX_AGE``.
+
+    Returns:
+        The session start time, or None if no such session is active.
     """
     timed = []
     for event in events:
