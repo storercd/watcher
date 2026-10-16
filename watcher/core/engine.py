@@ -52,6 +52,7 @@ STATUS_LABELS = {
     Status.BUILDING: "building",
     Status.SUCCESS: "success",
     Status.FAILURE: "failure",
+    Status.APPROVAL_REQUIRED: "approval required",
     Status.ERROR: "error",
 }
 

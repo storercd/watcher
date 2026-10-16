@@ -115,6 +115,15 @@ GitHub PR watchers poll `gh pr view <pr_url> --json ...` to read the PR's
 status-check rollup (GitHub Actions check runs and/or legacy commit
 statuses), and report `building` while any check is still running,
 `failure` if any finished check failed, or `success` once all have passed.
+If checks failed but a Copilot coding session started after the failure and
+hasn't finished (per the PR timeline's `copilot_work_started` /
+`copilot_work_finished` events, ignoring sessions older than 3 hours), the PR
+is reported as `building` ("Copilot is working on a fix") instead.
+
+If workflow runs for the PR's head commit are blocked waiting for approval
+(`action_required`, typical right after Copilot pushes), the PR is reported
+as `approval_required` (yellow) and notifies you, since you need to open the PR
+and approve the run, even if a Copilot session is still active.
 
 This requires the [GitHub CLI](https://cli.github.com/) (`gh`) to be
 installed and already authenticated on your machine:

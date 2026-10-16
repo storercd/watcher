@@ -7,16 +7,29 @@ so these tests run offline and fast, with no real ``gh`` auth required.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+import pytest
 
 from watcher.core.base import Status
 from watcher.watchers.github_pr import (
     GitHubPRWatcher,
+    _active_copilot_session,
     _default_label_from_url,
     _status_from_checks,
 )
 
 PR_URL = "https://github.com/INRIX/OSM-Map-Processing/pull/675"
+
+
+@pytest.fixture(autouse=True)
+def _no_copilot_events():
+    """Keep tests offline: by default the PR timeline has no Copilot events."""
+    with patch("watcher.watchers.github_pr._fetch_copilot_events", return_value=[]), patch(
+        "watcher.watchers.github_pr._count_runs_awaiting_approval", return_value=0
+    ):
+        yield
 
 
 def _check_run(conclusion, status="COMPLETED"):
@@ -217,3 +230,93 @@ class TestGitHubPRWatcherCheck:
         """The default label is derived as owner/repo#number."""
         watcher = GitHubPRWatcher(pr_url=PR_URL)
         assert watcher.label == "INRIX/OSM-Map-Processing#675"
+
+
+NOW = datetime(2026, 10, 16, 15, 0, tzinfo=timezone.utc)
+
+
+def _ev(event, minutes_ago):
+    return {"event": event, "created_at": (NOW - timedelta(minutes=minutes_ago)).isoformat()}
+
+
+class TestActiveCopilotSession:
+    """Tests for detecting an in-progress Copilot session."""
+
+    def test_started_after_failure_is_active(self):
+        """An unfinished session that began after the failure is active."""
+        failed_at = NOW - timedelta(minutes=30)
+        assert _active_copilot_session([_ev("copilot_work_started", 5)], failed_at, NOW)
+
+    def test_started_before_failure_is_not_active(self):
+        """A session that predates the failure can't be fixing it."""
+        failed_at = NOW - timedelta(minutes=5)
+        assert not _active_copilot_session([_ev("copilot_work_started", 30)], failed_at, NOW)
+
+    def test_finished_session_is_not_active(self):
+        """A finish event after the start ends the session."""
+        events = [_ev("copilot_work_started", 20), _ev("copilot_work_finished", 10)]
+        assert not _active_copilot_session(events, None, NOW)
+
+    def test_stale_session_is_not_active(self):
+        """A session with no finish event for hours is treated as stalled."""
+        assert not _active_copilot_session([_ev("copilot_work_started", 600)], None, NOW)
+
+
+class TestCopilotOverridesFailure:
+    """Tests for the watcher reporting building while Copilot fixes a failure."""
+
+    @patch("watcher.watchers.github_pr._active_copilot_session", return_value=NOW)
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_failure_with_active_copilot_is_building(self, mock_run, _active):
+        """A failing PR with active Copilot work reports building and is not actionable."""
+        mock_run.return_value = _pr_data("aaa", [_check_run("FAILURE")])
+        result = GitHubPRWatcher(pr_url=PR_URL).check()
+        assert result.status == Status.BUILDING
+        assert not result.newly_actionable
+        assert "Copilot" in result.detail
+
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_failure_without_copilot_stays_failure(self, mock_run):
+        """Without active Copilot work, a failing PR still reports failure."""
+        mock_run.return_value = _pr_data("aaa", [_check_run("FAILURE")])
+        assert GitHubPRWatcher(pr_url=PR_URL).check().status == Status.FAILURE
+
+
+class TestApprovalRequired:
+    """Tests for the approval-required (yellow) state."""
+
+    @patch("watcher.watchers.github_pr._count_runs_awaiting_approval", return_value=2)
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_awaiting_approval_notifies(self, mock_run, _count):
+        """Runs awaiting approval report approval_required and notify."""
+        mock_run.return_value = _pr_data("aaa", [])
+        result = GitHubPRWatcher(pr_url=PR_URL).check()
+        assert result.status == Status.APPROVAL_REQUIRED
+        assert result.newly_actionable
+        assert result.unacknowledged
+
+    @patch("watcher.watchers.github_pr._active_copilot_session", return_value=NOW)
+    @patch("watcher.watchers.github_pr._count_runs_awaiting_approval", return_value=1)
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_awaiting_approval_wins_over_active_copilot(self, mock_run, _count, _active):
+        """Pending approval needs the user, so it outranks an active Copilot session."""
+        mock_run.return_value = _pr_data("aaa", [])
+        result = GitHubPRWatcher(pr_url=PR_URL).check()
+        assert result.status == Status.APPROVAL_REQUIRED
+        assert result.newly_actionable
+
+    @patch("watcher.watchers.github_pr._count_runs_awaiting_approval")
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_result_after_approval_on_same_commit_notifies(self, mock_run, mock_count):
+        """After approving, the success on the same commit still notifies."""
+        mock_run.return_value = _pr_data("aaa", [])
+        mock_count.return_value = 1
+        watcher = GitHubPRWatcher(pr_url=PR_URL)
+        watcher.check()
+        watcher.acknowledge()
+
+        mock_count.return_value = 0
+        mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
+        result = watcher.check()
+        assert result.status == Status.SUCCESS
+        assert result.newly_actionable

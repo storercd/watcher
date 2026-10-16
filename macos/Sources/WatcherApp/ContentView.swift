@@ -53,6 +53,7 @@ struct ContentView: View {
             switch item.status {
             case .success: Color.green.opacity(0.28)
             case .failure: Color.red.opacity(0.28)
+            case .approvalRequired: Color.yellow.opacity(0.28)
             default: Color.orange.opacity(0.28)
             }
         }
@@ -124,6 +125,7 @@ struct WatcherRow: View {
         case .success: return "checkmark.circle.fill"
         case .failure: return "xmark.octagon.fill"
         case .error: return "exclamationmark.triangle.fill"
+        case .approvalRequired: return "hand.raised.fill"
         case .building: return "hammer.fill"
         case .idle: return "pause.circle"
         case .unknown: return "questionmark.circle"
@@ -135,6 +137,7 @@ struct WatcherRow: View {
         case .success: return .green
         case .failure: return .red
         case .error: return .orange
+        case .approvalRequired: return .yellow
         case .building: return .blue
         case .idle, .unknown: return .secondary
         }

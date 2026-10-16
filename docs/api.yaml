@@ -113,7 +113,7 @@ components:
         label: {type: string}
         notes: {type: string}
         url: {type: string, nullable: true}
-        status: {type: string, enum: [unknown, idle, building, success, failure, error]}
+        status: {type: string, enum: [unknown, idle, building, success, failure, approval_required, error]}
         detail: {type: string}
         last_checked: {type: number, nullable: true, description: Unix seconds; null if never checked}
         unacknowledged: {type: boolean, description: Actionable result still awaiting acknowledgment}
