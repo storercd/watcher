@@ -387,6 +387,11 @@ class GitHubPRWatcher(Watcher):
             # Copilot is still working on it, so this isn't actionable yet.
             status, detail = Status.BUILDING, f"Copilot is working on a fix ({detail})"
 
+        # Merged PRs keep their check-derived status (a force-merge over
+        # failing checks isn't green); we only annotate the detail.
+        if (data.get("state") or "").upper() == "MERGED":
+            detail = f"{detail} - merged"
+
         # Approval-required is tracked under its own key so that once the run
         # is approved, the resulting success/failure on the same commit still
         # notifies instead of looking like an already-seen state.
