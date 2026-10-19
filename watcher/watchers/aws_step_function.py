@@ -36,6 +36,9 @@ def _parse_execution_arn(text: str) -> Tuple[str, str, str, str]:
     """
     Extract (arn, region, state_machine, execution_name) from a console URL or ARN.
 
+    Returns:
+        A tuple of (arn, region, state machine name, execution name).
+
     Raises:
         ValueError: If no execution ARN is found.
     """
@@ -48,6 +51,9 @@ def _parse_execution_arn(text: str) -> Tuple[str, str, str, str]:
 def _run_aws(args: List[str], profile: Optional[str], region: str) -> Any:
     """
     Run an aws CLI command and parse its JSON output.
+
+    Returns:
+        The parsed JSON response.
 
     Raises:
         RuntimeError: On a missing CLI, timeout, non-zero exit, or bad output.
@@ -77,7 +83,12 @@ def _run_aws(args: List[str], profile: Optional[str], region: str) -> Any:
 
 
 def _describe(arn: str, region: str, profile: Optional[str]) -> Dict[str, Any]:
-    """Call describe-execution for ``arn`` using ``profile``."""
+    """
+    Call describe-execution for ``arn`` using ``profile``.
+
+    Returns:
+        The parsed describe-execution response.
+    """
     return _run_aws(["stepfunctions", "describe-execution", "--execution-arn", arn], profile, region)
 
 
@@ -157,7 +168,12 @@ class AwsStepFunctionWatcher(Watcher):
         self._checked_since_start = False
 
     def default_label(self) -> str:
-        """Derive ``<state machine> <short execution id>``."""
+        """
+        Derive ``<state machine> <short execution id>``.
+
+        Returns:
+            The derived label.
+        """
         return f"{self.state_machine} {self.execution_name[:8]}"
 
     @property
@@ -170,12 +186,20 @@ class AwsStepFunctionWatcher(Watcher):
 
     @classmethod
     def matches_url(cls, url: str) -> bool:
-        """Whether the text contains a Step Functions execution ARN."""
+        """
+        Whether the text contains a Step Functions execution ARN.
+
+        Returns:
+            True if an execution ARN is present.
+        """
         return bool(_ARN_RE.search(unquote(url)))
 
     def _fetch(self) -> Dict[str, Any]:
         """
         Describe the execution, trying the remembered profile then all others.
+
+        Returns:
+            The describe-execution response, plus the working ``_profile``.
 
         Raises:
             RuntimeError: If no profile can read the execution.
@@ -207,7 +231,12 @@ class AwsStepFunctionWatcher(Watcher):
         )
 
     def check(self) -> CheckResult:
-        """Poll the execution and report its status."""
+        """
+        Poll the execution and report its status.
+
+        Returns:
+            The result of polling the execution.
+        """
         try:
             data = self._fetch()
         except RuntimeError as exc:
@@ -244,7 +273,12 @@ class AwsStepFunctionWatcher(Watcher):
         self.acknowledged_completed = None
 
     def to_config(self) -> Dict[str, Any]:
-        """Serialize for JSON config storage."""
+        """
+        Serialize for JSON config storage.
+
+        Returns:
+            A dict suitable for JSON config storage.
+        """
         return {
             "watcher_type": self.watcher_type,
             "id": self.id,
@@ -258,7 +292,12 @@ class AwsStepFunctionWatcher(Watcher):
 
     @classmethod
     def from_config(cls, data: Dict[str, Any]) -> "AwsStepFunctionWatcher":
-        """Reconstruct from a dict produced by to_config()."""
+        """
+        Reconstruct from a dict produced by to_config().
+
+        Returns:
+            A new AwsStepFunctionWatcher instance.
+        """
         return cls(
             execution_arn=data["execution_arn"],
             watcher_id=data.get("id"),
