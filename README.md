@@ -1,8 +1,8 @@
 # Watcher
 
 Watcher is a small desktop window that watches
-things — Jenkins jobs, GitHub pull request status checks, and GitHub
-Actions workflow runs — and notifies
+things — Jenkins jobs, GitHub pull request status checks, GitHub
+Actions workflow runs, and AWS Step Functions executions (paste the console URL; requires the `aws` CLI) — and notifies
 you when they become actionable (e.g. a build finishes or all checks pass).
 
 ## What it does
@@ -164,6 +164,7 @@ watcher/
     jenkins.py      # JenkinsWatcher plugin (polls <job_url>/api/json)
     github_pr.py    # GitHubPRWatcher plugin (polls `gh pr view` status checks)
     github_actions_run.py # GitHubActionsRunWatcher plugin (polls `gh run view`)
+    aws_step_function.py # AwsStepFunctionWatcher plugin (polls `aws stepfunctions describe-execution`, tries every AWS profile)
   notifiers/
     base.py         # abstract Notifier interface
     macos.py        # MacOSNotifier (osascript "display notification")
