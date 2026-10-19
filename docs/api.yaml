@@ -109,7 +109,7 @@ components:
       type: object
       properties:
         id: {type: string}
-        type: {type: string, enum: [jenkins, github_pr, github_actions_run]}
+        type: {type: string, enum: [jenkins, github_pr, github_actions_run, aws_step_function]}
         label: {type: string}
         notes: {type: string}
         url: {type: string, nullable: true}

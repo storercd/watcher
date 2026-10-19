@@ -30,6 +30,7 @@ from watcher.notifiers.away import DEFAULT_NTFY_SERVER
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 
 # Importing these registers the plugins with the registry.
+from watcher.watchers.aws_step_function import AwsStepFunctionWatcher  # noqa: F401
 from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401
@@ -43,7 +44,8 @@ UNRECOGNIZED_URL_MESSAGE = (
     "Could not determine what kind of URL this is.\n\n"
     "Expected a Jenkins job URL (contains /job/), a GitHub PR URL "
     "(github.com/owner/repo/pull/123), or a GitHub Actions run URL "
-    "(github.com/owner/repo/actions/runs/123456)."
+    "(github.com/owner/repo/actions/runs/123456), or an AWS Step Functions "
+    "execution URL/ARN."
 )
 
 STATUS_LABELS = {
