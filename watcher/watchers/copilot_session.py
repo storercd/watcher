@@ -50,10 +50,7 @@ def _read_events(path: str) -> List[Dict[str, Any]]:
     Read the (tail of the) event log, skipping lines that don't parse.
 
     Returns:
-        The parsed events in file order.
-
-    Raises:
-        OSError: If the file can't be read.
+        The parsed events in file order; unreadable files raise OSError.
     """
     with open(path, "rb") as handle:
         size = handle.seek(0, os.SEEK_END)
@@ -77,71 +74,117 @@ def _read_events(path: str) -> List[Dict[str, Any]]:
     return events
 
 
+class _SessionState:
+    """Mutable fold state over a session's events."""
+
+    def __init__(self) -> None:
+        self.pending_tools: Dict[str, str] = {}
+        self.pending_perms: Dict[str, str] = {}
+        self.turn_open = False
+        self.last_end: Optional[str] = None
+        self.aborted = False
+        self.closed = False
+        self.question = ""
+
+    def reset(self, _event: Dict[str, Any], _data: Dict[str, Any]) -> None:
+        """Start of a (resumed) session run: drop everything in flight."""
+        self.pending_tools.clear()
+        self.pending_perms.clear()
+        self.turn_open = self.aborted = self.closed = False
+
+    def turn_start(self, _event: Dict[str, Any], _data: Dict[str, Any]) -> None:
+        """A user message or new turn means the agent is working."""
+        self.turn_open, self.aborted = True, False
+
+    def turn_end(self, event: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """The agent finished a turn."""
+        self.turn_open = False
+        self.last_end = str(event.get("id") or data.get("turnId") or "")
+
+    def tool_start(self, _event: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """Track a tool call; ask_user calls stay pending until answered."""
+        self.pending_tools[str(data.get("toolCallId"))] = str(data.get("toolName"))
+        if data.get("toolName") == "ask_user":
+            self.question = str((data.get("arguments") or {}).get("question") or "")
+
+    def tool_end(self, _event: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """A tool call completed."""
+        self.pending_tools.pop(str(data.get("toolCallId")), None)
+
+    def perm_start(self, _event: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """A permission prompt is waiting on the user."""
+        req = data.get("permissionRequest") or {}
+        self.pending_perms[str(data.get("requestId"))] = str(req.get("toolName") or req.get("kind") or "")
+
+    def perm_end(self, _event: Dict[str, Any], data: Dict[str, Any]) -> None:
+        """A permission prompt was answered."""
+        self.pending_perms.pop(str(data.get("requestId")), None)
+
+    def abort(self, _event: Dict[str, Any], _data: Dict[str, Any]) -> None:
+        """The user interrupted the agent."""
+        self.pending_tools.clear()
+        self.pending_perms.clear()
+        self.turn_open, self.aborted = False, True
+
+    def shutdown(self, _event: Dict[str, Any], _data: Dict[str, Any]) -> None:
+        """The session process closed."""
+        self.closed = True
+
+    def result(self) -> Tuple[Status, str, str]:
+        """
+        Summarize the folded state.
+
+        Returns:
+            A tuple of (status, detail, marker).
+        """
+        asks = [cid for cid, name in self.pending_tools.items() if name == "ask_user"]
+        if asks:
+            return Status.APPROVAL_REQUIRED, f"Needs your input: {self.question}".strip(), f"ask:{asks[-1]}"
+        if self.pending_perms:
+            req_id, name = next(reversed(self.pending_perms.items()))
+            return Status.APPROVAL_REQUIRED, f"Waiting for permission: {name}".strip(), f"perm:{req_id}"
+        if self.closed and not self.last_end:
+            return Status.IDLE, "Session closed", ""
+        if self.turn_open or self.pending_tools:
+            return Status.BUILDING, "Running", ""
+        if self.aborted:
+            return Status.IDLE, "Stopped by user", ""
+        if self.last_end:
+            return Status.SUCCESS, "Done - waiting for you", f"turn:{self.last_end}"
+        return Status.IDLE, "No activity yet", ""
+
+
 def derive_status(events: List[Dict[str, Any]]) -> Tuple[Status, str, str]:
     """
     Fold an event list into (status, detail, marker).
 
     The marker identifies the thing the user should look at (the finished
     turn or the pending prompt) so each is notified and acknowledged once.
+
+    Returns:
+        A tuple of (status, detail, marker).
     """
-    pending_tools: Dict[str, str] = {}
-    pending_perms: Dict[str, str] = {}
-    turn_open = False
-    last_end: Optional[str] = None
-    aborted = False
-    closed = False
-    question = ""
-
+    state = _SessionState()
+    handlers = {
+        "session.start": state.reset,
+        "session.resume": state.reset,
+        "user.message": state.turn_start,
+        "assistant.turn_start": state.turn_start,
+        "assistant.turn_end": state.turn_end,
+        "tool.execution_start": state.tool_start,
+        "tool.execution_complete": state.tool_end,
+        "permission.requested": state.perm_start,
+        "permission.completed": state.perm_end,
+        "abort": state.abort,
+        "session.shutdown": state.shutdown,
+    }
     for event in events:
-        kind = event.get("type")
-        data = event.get("data") or {}
-        if not isinstance(data, dict):
-            data = {}
-        if kind in ("session.start", "session.resume"):
-            pending_tools.clear()
-            pending_perms.clear()
-            turn_open = aborted = closed = False
-        elif kind == "user.message":
-            turn_open, aborted = True, False
-        elif kind == "assistant.turn_start":
-            turn_open, aborted = True, False
-        elif kind == "assistant.turn_end":
-            turn_open = False
-            last_end = str(event.get("id") or data.get("turnId") or "")
-        elif kind == "tool.execution_start":
-            call_id = str(data.get("toolCallId"))
-            pending_tools[call_id] = str(data.get("toolName"))
-            if data.get("toolName") == "ask_user":
-                question = str((data.get("arguments") or {}).get("question") or "")
-        elif kind == "tool.execution_complete":
-            pending_tools.pop(str(data.get("toolCallId")), None)
-        elif kind == "permission.requested":
-            req = data.get("permissionRequest") or {}
-            pending_perms[str(data.get("requestId"))] = str(req.get("toolName") or req.get("kind") or "")
-        elif kind == "permission.completed":
-            pending_perms.pop(str(data.get("requestId")), None)
-        elif kind == "abort":
-            pending_tools.clear()
-            pending_perms.clear()
-            turn_open, aborted = False, True
-        elif kind == "session.shutdown":
-            closed = True
-
-    asks = [cid for cid, name in pending_tools.items() if name == "ask_user"]
-    if asks:
-        return Status.APPROVAL_REQUIRED, f"Needs your input: {question}".strip(), f"ask:{asks[-1]}"
-    if pending_perms:
-        req_id, name = next(reversed(pending_perms.items()))
-        return Status.APPROVAL_REQUIRED, f"Waiting for permission: {name}".strip(), f"perm:{req_id}"
-    if closed and not last_end:
-        return Status.IDLE, "Session closed", ""
-    if turn_open or pending_tools:
-        return Status.BUILDING, "Running", ""
-    if aborted:
-        return Status.IDLE, "Stopped by user", ""
-    if last_end:
-        return Status.SUCCESS, "Done - waiting for you", f"turn:{last_end}"
-    return Status.IDLE, "No activity yet", ""
+        handler = handlers.get(event.get("type"))
+        if handler is None:
+            continue
+        data = event.get("data")
+        handler(event, data if isinstance(data, dict) else {})
+    return state.result()
 
 
 @register
