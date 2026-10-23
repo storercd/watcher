@@ -77,6 +77,7 @@ swift_bin="$(swift build -c release --package-path "${repo_root}/macos" --show-b
 app="${dest_dir}/Watcher.app"
 mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
 cp "${swift_bin}" "${app}/Contents/MacOS/Watcher"
+cp "$(dirname "${swift_bin}")/watcher-ax" "${app}/Contents/MacOS/watcher-ax"
 cp -R "${work_dir}/core/watcher-core" "${app}/Contents/Resources/watcher-core"
 cp "${icon_path}" "${app}/Contents/Resources/Watcher.icns"
 

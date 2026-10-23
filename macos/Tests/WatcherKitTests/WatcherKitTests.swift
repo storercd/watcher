@@ -86,3 +86,17 @@ import Testing
         #expect(!(core.isRunning))
     }
 }
+
+@Suite struct AppTargetTests {
+    @Test func roundTripsBundleIDAndWindowTitle() throws {
+        let target = AppTarget(bundleID: "org.python.python", windowTitle: "Trail & Camera+1")
+        let parsed = try #require(AppTarget(url: target.url))
+        #expect(parsed == target)
+        #expect(AppTarget(bundleID: "a.b").url == "app://a.b")
+    }
+
+    @Test func rejectsNonAppURLs() {
+        #expect(AppTarget(url: "https://example.com") == nil)
+        #expect(AppTarget(url: "app://") == nil)
+    }
+}

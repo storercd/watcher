@@ -60,12 +60,16 @@ struct ContentView: View {
     }
 
     private func open(_ item: WatcherItem) {
-        if let url = item.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
+        if let target = item.url.flatMap({ AppTarget(url: $0) }) {
+            NSRunningApplication.runningApplications(withBundleIdentifier: target.bundleID).first?.activate()
+        } else if let url = item.url.flatMap(URL.init(string:)) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @ViewBuilder private var watcherList: some View {
         if store.watchers.isEmpty {
-            Text("Nothing watched yet. Click + to add a Jenkins job, PR or Actions run.")
+            Text("Nothing watched yet. Click + to add a Jenkins job, PR, Actions run or running app.")
                 .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(store.watchers) { item in
@@ -77,7 +81,9 @@ struct ContentView: View {
                     .contextMenu {
                         if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
                         if item.url.flatMap(URL.init(string:)) != nil {
-                            Button("Open in Browser") { open(item) }
+                            Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
+                                open(item)
+                            }
                         }
                         Button("Edit…") { editing = item }
                         Divider()
