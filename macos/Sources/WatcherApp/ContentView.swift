@@ -106,8 +106,11 @@ struct WatcherRow: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon).foregroundStyle(color).font(font(15)).frame(width: 22 * store.settings.fontScale)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.label).font(font(13, weight: .semibold))
-                Text(item.detail.isEmpty ? item.status.rawValue.capitalized : item.detail)
+                HStack(spacing: 6) {
+                    if let doneTag { doneBadge(doneTag) }
+                    Text(item.label).font(font(13, weight: .semibold))
+                }
+                Text(shownDetail)
                     .font(font(11)).foregroundStyle(.secondary).lineLimit(2)
                 if !item.notes.isEmpty { Text(item.notes).font(font(10)).foregroundStyle(.tertiary) }
                 if let checked = item.lastChecked {
@@ -124,6 +127,29 @@ struct WatcherRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .help(item.url ?? "")
+    }
+
+    // Watchers append " - merged" / " - archived" to the detail when the work is finished.
+    private static let doneTags = ["merged", "archived"]
+
+    private var doneTag: String? {
+        Self.doneTags.first { item.detail.lowercased().hasSuffix(" - \($0)") }
+    }
+
+    private var shownDetail: String {
+        guard let tag = doneTag else {
+            return item.detail.isEmpty ? item.status.rawValue.capitalized : item.detail
+        }
+        let base = String(item.detail.dropLast(tag.count + 3))
+        return base.isEmpty ? item.status.rawValue.capitalized : base
+    }
+
+    private func doneBadge(_ tag: String) -> some View {
+        Text(tag.uppercased())
+            .font(font(9, weight: .bold))
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(Capsule().fill(tag == "merged" ? Color.purple : Color.gray))
+            .foregroundStyle(.white)
     }
 
     private var icon: String {
