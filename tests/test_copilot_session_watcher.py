@@ -96,6 +96,7 @@ if __name__ == "__main__":
 
 
 def test_is_archived(tmp_path):
+    """Sessions are archived only when their workspace row has archived_at set."""
     import sqlite3
 
     from watcher.watchers.copilot_session import is_archived
