@@ -93,3 +93,22 @@ class CopilotSessionWatcherTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_is_archived(tmp_path):
+    """Sessions are archived only when their workspace row has archived_at set."""
+    import sqlite3
+
+    from watcher.watchers.copilot_session import is_archived
+
+    db = str(tmp_path / "data.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE workspaces (id TEXT, session_id TEXT, archived_at TEXT)")
+    conn.execute("INSERT INTO workspaces VALUES ('w1', 's1', '2026-01-01T00:00:00Z')")
+    conn.execute("INSERT INTO workspaces VALUES ('w2', 's2', NULL)")
+    conn.commit()
+    conn.close()
+    assert is_archived("s1", db)
+    assert is_archived("w1", db)
+    assert not is_archived("s2", db)
+    assert not is_archived("s1", str(tmp_path / "missing.db"))

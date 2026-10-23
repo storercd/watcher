@@ -10,6 +10,9 @@ types are ignored.
 * pending ``ask_user`` tool call or permission request -> needs input
 * open turn or pending tool call -> running
 * last turn finished -> done (waiting on the user)
+
+Archived sessions (per the app's ``data.db``) keep their status, with " - archived"
+appended to the detail, like merged PRs.
 """
 
 from __future__ import annotations
@@ -17,12 +20,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 from watcher.core.base import CheckResult, Status, Watcher
 from watcher.core.registry import register
 
 SESSION_STATE_DIR = os.path.join(os.path.expanduser("~"), ".copilot", "session-state")
+APP_DB_PATH = os.path.join(os.path.expanduser("~"), ".copilot", "data.db")
 URL_PREFIX = "ghapp://sessions/"
 MAX_TAIL_BYTES = 4 * 1024 * 1024
 
@@ -187,6 +192,32 @@ def derive_status(events: List[Dict[str, Any]]) -> Tuple[Status, str, str]:
     return state.result()
 
 
+def is_archived(session_id: str, db_path: str = APP_DB_PATH) -> bool:
+    """
+    Whether the Copilot app has archived the session.
+
+    The app records this in its ``workspaces`` table (``archived_at``). Any
+    failure to read it (missing or locked DB, schema change) means "not archived".
+
+    Returns:
+        True if the session's workspace has an archive timestamp.
+    """
+    if not os.path.exists(db_path):
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM workspaces WHERE (session_id = ? OR id = ?) AND archived_at IS NOT NULL LIMIT 1",
+                (session_id, session_id),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
+
 @register
 class CopilotSessionWatcher(Watcher):
     """Watches a local GitHub Copilot app session via its events.jsonl."""
@@ -261,6 +292,9 @@ class CopilotSessionWatcher(Watcher):
             detail = f"Cannot read session log: {exc.strerror or exc}"
             self.last_status, self.last_detail = Status.ERROR, detail
             return CheckResult(status=Status.ERROR, detail=detail)
+
+        if is_archived(self.session_id):
+            detail = f"{detail} - archived"
 
         unacknowledged = status.is_actionable and marker != self.acknowledged_completed
         newly_actionable = unacknowledged and (marker != self.last_completed or not self._checked_since_start)
