@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 import WatcherKit
 
@@ -12,10 +13,32 @@ struct WatcherForm: View {
     @State private var notes = ""
     @State private var error: String?
     @State private var busy = false
+    @State private var windowTitle = ""
+
+    private var appTarget: AppTarget? { AppTarget(url: url) }
 
     var body: some View {
         Form {
-            TextField("URL", text: $url, prompt: Text("Jenkins job, GitHub PR or Actions run URL"))
+            HStack {
+                TextField("URL", text: $url, prompt: Text("Jenkins job, GitHub PR or Actions run URL"))
+                Menu("Running app…") {
+                    ForEach(runningApps, id: \.bundleIdentifier) { app in
+                        Button(app.localizedName ?? app.bundleIdentifier ?? "") { choose(app) }
+                    }
+                }
+                .fixedSize()
+            }
+            if let target = appTarget {
+                TextField(
+                    "Window title", text: $windowTitle,
+                    prompt: Text("Optional - only watch windows whose title contains this")
+                )
+                .onChange(of: windowTitle) { title in
+                    url = AppTarget(bundleID: target.bundleID, windowTitle: title).url
+                }
+                Text("Alerts when \(target.bundleID)'s progress bar finishes. Needs Accessibility permission.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             TextField("Label", text: $label, prompt: Text("Optional"))
             TextField("Notes", text: $notes, axis: .vertical).lineLimit(2...4)
             if let error { Text(error).foregroundStyle(.red) }
@@ -31,9 +54,27 @@ struct WatcherForm: View {
         .onAppear {
             guard let existing else { return }
             url = existing.url ?? ""
+            windowTitle = AppTarget(url: url)?.windowTitle ?? ""
             label = existing.label
             notes = existing.notes
         }
+    }
+
+    private var runningApps: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
+            .filter { $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
+    }
+
+    private func choose(_ app: NSRunningApplication) {
+        guard let id = app.bundleIdentifier else { return }
+        windowTitle = ""
+        url = AppTarget(bundleID: id).url
+        if label.isEmpty { label = app.localizedName ?? id }
+        // Reading another app's progress bar needs the Accessibility permission.
+        let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
     }
 
     private func submit() {

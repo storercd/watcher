@@ -5,7 +5,8 @@ things — Jenkins jobs, GitHub pull request status checks, GitHub
 Actions workflow runs, and AWS Step Functions executions (paste the console URL; requires the `aws` CLI), and local GitHub
 Copilot app sessions (paste the session ID; alerts when the session is done or
 needs your input by reading `~/.copilot/session-state/<id>/events.jsonl`, an
-undocumented format that may change) — and notifies
+undocumented format that may change), and the progress bar of any running
+macOS app (pick it from the Add dialog's "Running app…" menu) — and notifies
 you when they become actionable (e.g. a build finishes or all checks pass).
 
 ## What it does
@@ -111,6 +112,22 @@ From the window:
 The window is unauthenticated/anonymous-access only for Jenkins right now —
 no credentials are sent, so the job must allow anonymous read access to its
 `api/json` endpoint.
+
+### Running app progress watcher (macOS)
+
+Click **+**, then **Running app…** to pick an app (stored as
+`app://<bundle-id>[?window=<title>]`). Watcher reads the app's progress bars
+through the Accessibility API using the bundled `watcher-ax` helper, and
+reports `building` while a bar is showing. When a bar that was showing has
+been gone for two polls, the app is reported as ready (green) and you're
+notified once. An app that quits is never reported as done. Use the optional
+window-title filter for apps that host many windows (e.g. a Python script's
+window, whose bundle id is shared by every Python app).
+
+Grant Watcher access under System Settings → Privacy & Security →
+Accessibility. Other platforms have no implementation yet, and show an error
+row saying so. Apps that draw progress into the Dock icon only (such as
+Lightroom Classic) don't expose it to Accessibility and can't be tracked.
 
 ### GitHub PR / GitHub Actions run watcher setup
 
@@ -258,6 +275,8 @@ workflow (`.github/workflows/ci.yml`), across Python 3.9–3.12.
   the public `ntfy.sh`) and the user to subscribe to the configured topic in
   the ntfy app on their phone; there's no in-app verification that the topic
   is actually being received.
+- App progress watching is macOS-only, and "bar disappeared" can't tell
+  completion from a cancelled job or a closed window.
 - Poll interval is a single global value for all watchers (set in Settings),
   not per watcher.
 - The UI is macOS-only for now; the engine and its API (`docs/api.yaml`) are

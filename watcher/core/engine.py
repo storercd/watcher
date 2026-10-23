@@ -30,6 +30,7 @@ from watcher.notifiers.away import DEFAULT_NTFY_SERVER
 from watcher.notifiers.router import AT_DESK, MODES, NotificationRouter
 
 # Importing these registers the plugins with the registry.
+from watcher.watchers.app_progress import AppProgressWatcher  # noqa: F401
 from watcher.watchers.aws_step_function import AwsStepFunctionWatcher  # noqa: F401
 from watcher.watchers.copilot_session import CopilotSessionWatcher  # noqa: F401
 from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401
