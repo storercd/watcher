@@ -56,6 +56,18 @@ current "latest good build", no manual release step needed.
 
    After that one-time step, it opens normally (including from the Dock).
 
+**After updating:** because builds are ad-hoc signed, every new build has a
+new code identity, so macOS keeps the old "Watcher" row in Privacy & Security
+(Accessibility, Screen Recording) switched on but no longer honors it —
+Watcher then reports "Accessibility permission is not granted". Toggling it
+off and on does not fix this; reset the stale entries and grant them again
+when prompted:
+
+```bash
+tccutil reset Accessibility com.storercd.watcher
+tccutil reset ScreenCapture com.storercd.watcher
+```
+
 **Getting notified of updates:** Watcher checks GitHub for a newer release
 shortly after it starts (and periodically while it keeps running) and shows
 a small banner at the top of the window if one's available — click it to

@@ -77,5 +77,12 @@ jobs:
             xattr -cr /Applications/Watcher.app   # or wherever you dragged it
             ```
 
+            **After updating:** each unsigned build has a new code identity, so macOS may keep Watcher's Accessibility / Screen Recording entries switched on but stop honoring them ("Accessibility permission is not granted"). Toggling does not help; reset them and grant again when prompted:
+
+            ```bash
+            tccutil reset Accessibility com.storercd.watcher
+            tccutil reset ScreenCapture com.storercd.watcher
+            ```
+
             Build ${{ steps.version.outputs.build_number }} from commit ${{ github.sha }}.
 
