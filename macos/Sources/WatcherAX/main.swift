@@ -219,16 +219,22 @@ func dockProgress(for app: NSRunningApplication) -> [String: Any]? {
     guard CGPreflightScreenCaptureAccess() else {
         fail("screen_recording_denied", "Screen Recording permission is not granted to Watcher.")
     }
-    guard let frame = dockTileFrame(for: app) else { return nil }
+    // Failing to look is an error, not "no bar": otherwise a sleeping display would read as a finished task.
+    guard let frame = dockTileFrame(for: app) else {
+        fail("dock_tile_not_found", "Could not find \(app.localizedName ?? "the app")'s Dock icon.")
+    }
     let path = NSTemporaryDirectory() + "watcher-dock-\(getpid()).png"
     defer { try? FileManager.default.removeItem(atPath: path) }
     let rect = "\(Int(frame.minX.rounded())),\(Int(frame.minY.rounded())),\(Int(frame.width.rounded())),\(Int(frame.height.rounded()))"
     let capture = Process()
     capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
     capture.arguments = ["-x", "-R", rect, path]
-    do { try capture.run() } catch { return nil }
+    do { try capture.run() } catch { fail("capture_failed", "Could not run screencapture: \(error.localizedDescription)") }
     capture.waitUntilExit()
-    guard let px = loadPixels(path), let bar = findBar(in: px) else { return nil }
+    guard capture.terminationStatus == 0, let px = loadPixels(path) else {
+        fail("capture_failed", "Could not capture the Dock icon (is the display asleep or locked?).")
+    }
+    guard let bar = findBar(in: px) else { return nil }
     let pct = 100.0 * Double(bar.fill) / Double(bar.width)
     return ["value": pct.rounded(), "min": 0, "max": 100, "title": "Dock icon", "source": "dock"]
 }
