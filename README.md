@@ -116,7 +116,7 @@ no credentials are sent, so the job must allow anonymous read access to its
 ### Running app progress watcher (macOS)
 
 Click **+**, then **Running app…** to pick an app (stored as
-`app://<bundle-id>[?window=<title>]`). Watcher reads the app's progress bars
+`app://<bundle-id>[?window=<title>][&dock=1]`). Watcher reads the app's progress bars
 through the Accessibility API using the bundled `watcher-ax` helper, and
 reports `building` while a bar is showing. When a bar that was showing has
 been gone for two polls, the app is reported as ready (green) and you're
@@ -126,8 +126,17 @@ window, whose bundle id is shared by every Python app).
 
 Grant Watcher access under System Settings → Privacy & Security →
 Accessibility. Other platforms have no implementation yet, and show an error
-row saying so. Apps that draw progress into the Dock icon only (such as
-Lightroom Classic) don't expose it to Accessibility and can't be tracked.
+row saying so.
+
+Some apps (such as Lightroom Classic) draw progress as pixels, on their Dock
+icon, without exposing it to Accessibility. Tick **Also read the Dock icon's
+progress bar** (`&dock=1`) for those: when the app exposes no progress bar,
+Watcher locates its Dock tile, screenshots just that tile and measures a
+horizontal bar (a light fill beside a long track) on it, so it works while the
+app is minimized. Grant Watcher Screen Recording permission under System
+Settings → Privacy & Security for this. The detection is heuristic and was
+verified against Lightroom Classic only; apps whose Dock icons change for other
+reasons could be misread.
 
 ### GitHub PR / GitHub Actions run watcher setup
 

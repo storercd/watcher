@@ -101,9 +101,13 @@ def run_helper(*args: str, timeout: float = 20) -> Dict[str, Any]:
     return data
 
 
-def read_progress(bundle_id: str, window_title: str = "") -> Dict[str, Any]:
+def read_progress(bundle_id: str, window_title: str = "", dock: bool = False) -> Dict[str, Any]:
     """
     Read the progress indicators of a running app.
+
+    With ``dock``, an app that exposes no accessibility progress bar also has its Dock icon
+    inspected for a drawn one (needs Screen Recording permission); such entries carry
+    ``"source": "dock"``.
 
     Returns:
         ``{"running": bool, "windows": int, "progress": [{"value", "min", "max", "title"}...]}``.
@@ -111,6 +115,8 @@ def read_progress(bundle_id: str, window_title: str = "") -> Dict[str, Any]:
     args = ["progress", bundle_id]
     if window_title:
         args += ["--window-title", window_title]
+    if dock:
+        args.append("--dock")
     return run_helper(*args)
 
 

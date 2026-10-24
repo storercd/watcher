@@ -36,6 +36,17 @@ class AppProgressWatcherTests(unittest.TestCase):
         self.assertIsNone(detect_watcher_class("https://example.com"))
         self.assertEqual(build_url("a.b", "x y"), "app://a.b?window=x%20y")
 
+    def test_dock_option_round_trips_and_is_passed_to_helper(self):
+        """``&dock=1`` is parsed, preserved in the URL, and forwarded to the helper."""
+        w = AppProgressWatcher("app://com.adobe.LightroomClassicCC7?dock=1")
+        self.assertTrue(w.dock)
+        self.assertEqual(w.display_url, "app://com.adobe.LightroomClassicCC7?dock=1")
+        self.assertEqual(build_url("a.b", "x y", dock=True), "app://a.b?window=x%20y&dock=1")
+        self.assertFalse(self.w.dock)
+        with mock.patch.object(ax_helper, "read_progress", return_value=BAR) as read:
+            w.check()
+        read.assert_called_once_with("com.adobe.LightroomClassicCC7", "", True)
+
     def test_idle_until_bar_seen(self):
         """No bar and never seen one: idle, no alert."""
         result = self.check(NO_BAR)
