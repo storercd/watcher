@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 import WatcherKit
 
@@ -19,6 +20,8 @@ final class WatcherStore: ObservableObject {
     private let core = CoreProcess()
     private var client: APIClient?
     private var eventTask: Task<Void, Never>?
+    private var promptedAccessibility = false
+    private var promptedScreenRecording = false
 
     var unacknowledgedCount: Int { watchers.filter(\.unacknowledged).count }
 
@@ -76,8 +79,24 @@ final class WatcherStore: ObservableObject {
         case .notification:
             NSApp.requestUserAttention(.criticalRequest)
         }
+        promptForMissingPermissions()
         applyWindowLevel()
         NSApp.dockTile.badgeLabel = unacknowledgedCount > 0 ? "\(unacknowledgedCount)" : nil
+    }
+
+    /// Re-asks for a permission the helper reported missing (e.g. after a reset), once per launch,
+    /// so the user doesn't have to re-pick the app to trigger the system prompt.
+    private func promptForMissingPermissions() {
+        let details = watchers.map(\.detail)
+        if !promptedAccessibility, details.contains(where: { $0.contains("Accessibility permission is not granted") }) {
+            promptedAccessibility = true
+            let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+            _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
+        }
+        if !promptedScreenRecording, details.contains(where: { $0.contains("Screen Recording permission is not granted") }) {
+            promptedScreenRecording = true
+            _ = CGRequestScreenCaptureAccess()
+        }
     }
 
     private func applyWindowLevel() {
