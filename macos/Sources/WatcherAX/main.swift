@@ -100,6 +100,7 @@ struct Bar {
     var top: Int
     var bottom: Int  // exclusive
     var fill: Int
+    var split: Int  // x where the fill ends
     var thickness: Int { bottom - top }
     var width: Int { right - left }
 }
@@ -107,13 +108,27 @@ struct Bar {
 /// Finds a horizontal bar: a long, uniform "track" run with a differently colored "fill" run
 /// directly to its left, repeated over a few consecutive rows. Returns the best candidate.
 func findBar(in px: Pixels) -> Bar? {
-    let minTrack = px.width * 35 / 100
+    let minBar = px.width * 40 / 100
     let maxThickness = max(4, px.height / 5)
     var best: Bar?
     var current: Bar?
 
+    /// A bar is framed: the rows just above and below it differ from both its fill and its track,
+    /// whereas two-tone icon art keeps the same colors going past the band.
+    func isFramed(_ bar: Bar) -> Bool {
+        guard bar.top >= 1, bar.bottom < px.height else { return false }
+        let mid = (bar.top + bar.bottom) / 2
+        let fillX = (bar.left + bar.split) / 2
+        let trackX = (bar.split + bar.right) / 2
+        let fillColor = px.rgb(fillX, mid), trackColor = px.rgb(trackX, mid)
+        for y in [bar.top - 1, bar.bottom] {
+            if distance(px.rgb(fillX, y), fillColor) < 40 || distance(px.rgb(trackX, y), trackColor) < 25 { return false }
+        }
+        return true
+    }
+
     func flush() {
-        if let bar = current, bar.thickness >= max(5, px.height / 20) && bar.thickness <= maxThickness {
+        if let bar = current, bar.thickness >= max(5, px.height / 20) && bar.thickness <= maxThickness, isFramed(bar) {
             if best == nil || bar.width * bar.thickness > best!.width * best!.thickness { best = bar }
         }
         current = nil
@@ -129,9 +144,10 @@ func findBar(in px: Pixels) -> Bar? {
             // Skip an antialiased 1-3px edge between the fill and the track.
             var gap = 0
             for track in rowRuns[(i + 1)...] {
-                if track.length >= minTrack {
-                    if distance(fill.color, track.color) >= 60, track.end < px.width {
-                        candidate = Bar(left: fill.start, right: track.end, top: y, bottom: y + 1, fill: fill.length + gap / 2)
+                if track.length >= 3 {
+                    // Judge the whole bar (fill + track) so a mostly-full bar still matches.
+                    if track.end - fill.start >= minBar, distance(fill.color, track.color) >= 60, track.end < px.width {
+                        candidate = Bar(left: fill.start, right: track.end, top: y, bottom: y + 1, fill: fill.length + gap / 2, split: fill.end)
                         break search
                     }
                     break
@@ -140,9 +156,10 @@ func findBar(in px: Pixels) -> Bar? {
                 if gap > 3 { break }
             }
         }
-        if let c = candidate, var cur = current, abs(c.left - cur.left) <= 3, abs(c.right - cur.right) <= 3 {
+        if let c = candidate, var cur = current, abs(c.left - cur.left) <= 1, abs(c.right - cur.right) <= 1, abs(c.split - cur.split) <= 1 {
             cur.bottom = y + 1
             cur.fill = max(cur.fill, c.fill)
+            cur.split = c.split
             current = cur
         } else {
             flush()
