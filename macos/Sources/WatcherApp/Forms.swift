@@ -14,6 +14,7 @@ struct WatcherForm: View {
     @State private var error: String?
     @State private var busy = false
     @State private var windowTitle = ""
+    @State private var readDockIcon = false
 
     private var appTarget: AppTarget? { AppTarget(url: url) }
 
@@ -34,7 +35,16 @@ struct WatcherForm: View {
                     prompt: Text("Optional - only watch windows whose title contains this")
                 )
                 .onChange(of: windowTitle) { title in
-                    url = AppTarget(bundleID: target.bundleID, windowTitle: title).url
+                    url = AppTarget(bundleID: target.bundleID, windowTitle: title, readDockIcon: readDockIcon).url
+                }
+                Toggle("Also read the Dock icon's progress bar", isOn: $readDockIcon)
+                    .onChange(of: readDockIcon) { enabled in
+                        url = AppTarget(bundleID: target.bundleID, windowTitle: windowTitle, readDockIcon: enabled).url
+                        if enabled { _ = CGRequestScreenCaptureAccess() }
+                    }
+                if readDockIcon {
+                    Text("For apps like Lightroom that draw progress without exposing it. Works while the app is minimized; needs Screen Recording permission.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Text("Alerts when \(target.bundleID)'s progress bar finishes. Needs Accessibility permission.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -55,6 +65,7 @@ struct WatcherForm: View {
             guard let existing else { return }
             url = existing.url ?? ""
             windowTitle = AppTarget(url: url)?.windowTitle ?? ""
+            readDockIcon = AppTarget(url: url)?.readDockIcon ?? false
             label = existing.label
             notes = existing.notes
         }
@@ -70,6 +81,7 @@ struct WatcherForm: View {
     private func choose(_ app: NSRunningApplication) {
         guard let id = app.bundleIdentifier else { return }
         windowTitle = ""
+        readDockIcon = false
         url = AppTarget(bundleID: id).url
         if label.isEmpty { label = app.localizedName ?? id }
         // Reading another app's progress bar needs the Accessibility permission.

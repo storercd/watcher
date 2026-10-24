@@ -5,6 +5,9 @@ Watches another app's progress bar through the Accessibility API (via the
 ``watcher-ax`` helper). Accepts ``app://<bundle-id>`` with an optional
 ``?window=<title substring>`` filter, since a bundle id alone is too coarse
 for apps like ``org.python.python`` that host many unrelated windows.
+``&dock=1`` additionally reads a progress bar drawn on the app's Dock icon, for
+apps (like Lightroom Classic) that draw their progress without exposing it to
+accessibility; this works even while the app is minimized.
 
 The rule is deliberately simple and app-agnostic: a progress bar that was
 seen and then disappears means the app is ready.
@@ -32,10 +35,10 @@ MISSING_POLLS_TO_FINISH = 2
 
 def _parse_target(text: str) -> tuple:
     """
-    Split ``app://<bundle-id>[?window=<title>]`` into its parts.
+    Split ``app://<bundle-id>[?window=<title>][&dock=1]`` into its parts.
 
     Returns:
-        A tuple of (bundle_id, window_title).
+        A tuple of (bundle_id, window_title, dock).
 
     Raises:
         ValueError: If the text is not an app URL with a bundle id.
@@ -47,19 +50,24 @@ def _parse_target(text: str) -> tuple:
     bundle_id = unquote(parts.netloc or parts.path.lstrip("/"))
     if not bundle_id:
         raise ValueError("App URL is missing a bundle id")
-    window = parse_qs(parts.query).get("window", [""])[0]
-    return bundle_id, window
+    query = parse_qs(parts.query)
+    return bundle_id, query.get("window", [""])[0], query.get("dock", [""])[0] == "1"
 
 
-def build_url(bundle_id: str, window_title: str = "") -> str:
+def build_url(bundle_id: str, window_title: str = "", dock: bool = False) -> str:
     """
-    Build the ``app://`` URL for a bundle id and optional window title.
+    Build the ``app://`` URL for a bundle id, optional window title and Dock-icon option.
 
     Returns:
         The URL accepted by :class:`AppProgressWatcher`.
     """
+    params = []
+    if window_title:
+        params.append(f"window={quote(window_title, safe='')}")
+    if dock:
+        params.append("dock=1")
     url = f"{URL_PREFIX}{quote(bundle_id, safe='')}"
-    return f"{url}?window={quote(window_title, safe='')}" if window_title else url
+    return f"{url}?{'&'.join(params)}" if params else url
 
 
 def _describe_progress(indicators: list) -> str:
@@ -96,7 +104,7 @@ class AppProgressWatcher(Watcher):
         notes: str = "",
     ):
         """Initialize from an ``app://<bundle-id>[?window=<title>]`` URL."""
-        self.bundle_id, self.window_title = _parse_target(url)
+        self.bundle_id, self.window_title, self.dock = _parse_target(url)
         super().__init__(watcher_id=watcher_id, label=label, notes=notes)
         self.last_completed = last_completed
         self.acknowledged_completed = acknowledged_completed
@@ -116,7 +124,7 @@ class AppProgressWatcher(Watcher):
     @property
     def display_url(self) -> Optional[str]:
         """The ``app://`` URL, which the GUI uses for editing and to switch to the app."""
-        return build_url(self.bundle_id, self.window_title)
+        return build_url(self.bundle_id, self.window_title, self.dock)
 
     @classmethod
     def matches_url(cls, url: str) -> bool:
@@ -146,7 +154,7 @@ class AppProgressWatcher(Watcher):
         if not ax_helper.is_supported():
             return self._fail(Status.ERROR, ax_helper.unsupported_message())
         try:
-            reading = ax_helper.read_progress(self.bundle_id, self.window_title)
+            reading = ax_helper.read_progress(self.bundle_id, self.window_title, self.dock)
         except ax_helper.AxHelperError as exc:
             return self._fail(Status.ERROR, str(exc))
 
@@ -205,7 +213,7 @@ class AppProgressWatcher(Watcher):
             "watcher_type": self.watcher_type,
             "id": self.id,
             "label": self.label,
-            "url": build_url(self.bundle_id, self.window_title),
+            "url": build_url(self.bundle_id, self.window_title, self.dock),
             "last_completed": self.last_completed,
             "acknowledged_completed": self.acknowledged_completed,
             "notes": self.notes,

@@ -95,6 +95,13 @@ import Testing
         #expect(AppTarget(bundleID: "a.b").url == "app://a.b")
     }
 
+    @Test func roundTripsDockIconOption() throws {
+        let target = AppTarget(bundleID: "a.b", windowTitle: "x y", readDockIcon: true)
+        #expect(target.url == "app://a.b?window=x%20y&dock=1")
+        #expect(try #require(AppTarget(url: target.url)) == target)
+        #expect(AppTarget(url: "app://a.b")?.readDockIcon == false)
+    }
+
     @Test func rejectsNonAppURLs() {
         #expect(AppTarget(url: "https://example.com") == nil)
         #expect(AppTarget(url: "app://") == nil)
