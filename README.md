@@ -131,8 +131,8 @@ Click **+**, then **Running app…** to pick an app (stored as
 `app://<bundle-id>[?window=<title>][&dock=1]`). Watcher reads the app's progress bars
 through the Accessibility API using the bundled `watcher-ax` helper, and
 reports `building` while a bar is showing. When a bar that was showing has
-been gone for two polls, the app is reported as ready (green) and you're
-notified once. An app that quits is never reported as done. Use the optional
+been gone for two polls (ten if its last reading was under 90%, to ride out
+glitches), the app is reported as ready (green) and you're notified once. An app that quits is never reported as done. Use the optional
 window-title filter for apps that host many windows (e.g. a Python script's
 window, whose bundle id is shared by every Python app).
 
