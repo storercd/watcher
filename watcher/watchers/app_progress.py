@@ -14,6 +14,7 @@ seen and then disappears means the app is ready.
 
 * progress bar present -> building
 * bar seen, then absent for ``MISSING_POLLS_TO_FINISH`` polls -> success
+  (``MISSING_POLLS_TO_FINISH_EARLY`` if the last reading was under 90%)
 * app not running -> idle (a quit is never reported as "done")
 """
 
@@ -31,6 +32,11 @@ URL_PREFIX = "app://"
 # Require the bar to stay gone for consecutive polls so a momentary glitch in
 # the target's accessibility tree isn't reported as completion.
 MISSING_POLLS_TO_FINISH = 2
+# If the bar vanishes while clearly short of done (e.g. 36%), it is most likely
+# a transient glitch (the Dock icon changing, a window redraw), so wait much
+# longer before declaring completion.
+NEAR_DONE_FRACTION = 0.9
+MISSING_POLLS_TO_FINISH_EARLY = 10
 
 
 def _parse_target(text: str) -> tuple:
@@ -68,6 +74,23 @@ def build_url(bundle_id: str, window_title: str = "", dock: bool = False) -> str
         params.append("dock=1")
     url = f"{URL_PREFIX}{quote(bundle_id, safe='')}"
     return f"{url}?{'&'.join(params)}" if params else url
+
+
+def _fraction(indicators: list) -> Optional[float]:
+    """
+    Fraction complete (0-1) of the first indicator with a value, if known.
+
+    Returns:
+        The fraction, or None when no indicator reports a usable value.
+    """
+    for item in indicators:
+        value = item.get("value")
+        if value is None:
+            continue
+        low, high = item.get("min", 0), item.get("max", 1)
+        if high > low:
+            return (value - low) / (high - low)
+    return None
 
 
 def _describe_progress(indicators: list) -> str:
@@ -110,6 +133,7 @@ class AppProgressWatcher(Watcher):
         self.acknowledged_completed = acknowledged_completed
         self._seen_progress = False
         self._missing_polls = 0
+        self._last_fraction: Optional[float] = None
         self._notified_completed: Optional[str] = None
 
     def default_label(self) -> str:
@@ -164,10 +188,13 @@ class AppProgressWatcher(Watcher):
             status, detail = Status.IDLE, "App is not running"
         elif indicators:
             self._seen_progress, self._missing_polls = True, 0
+            self._last_fraction = _fraction(indicators)
             status, detail = Status.BUILDING, _describe_progress(indicators)
         elif self._seen_progress:
             self._missing_polls += 1
-            if self._missing_polls >= MISSING_POLLS_TO_FINISH:
+            early = self._last_fraction is not None and self._last_fraction < NEAR_DONE_FRACTION
+            needed = MISSING_POLLS_TO_FINISH_EARLY if early else MISSING_POLLS_TO_FINISH
+            if self._missing_polls >= needed:
                 self._seen_progress, self._missing_polls = False, 0
                 self.last_completed = str(time.time_ns())
                 status, detail = Status.SUCCESS, "Progress finished - ready"

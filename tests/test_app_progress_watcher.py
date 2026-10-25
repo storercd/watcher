@@ -6,10 +6,11 @@ from unittest import mock
 from watcher.core import ax_helper
 from watcher.core.base import Status
 from watcher.core.registry import detect_watcher_class
-from watcher.watchers.app_progress import AppProgressWatcher, build_url
+from watcher.watchers.app_progress import MISSING_POLLS_TO_FINISH_EARLY, AppProgressWatcher, build_url
 
 URL = "app://org.python.python?window=Trail%20Camera"
 BAR = {"running": True, "windows": 1, "progress": [{"value": 8, "min": 0, "max": 50}]}
+NEAR_DONE_BAR = {"running": True, "windows": 1, "progress": [{"value": 49, "min": 0, "max": 50}]}
 NO_BAR = {"running": True, "windows": 1, "progress": []}
 NOT_RUNNING = {"running": False, "windows": 0, "progress": []}
 
@@ -53,10 +54,17 @@ class AppProgressWatcherTests(unittest.TestCase):
         self.assertEqual(result.status, Status.IDLE)
         self.assertFalse(result.newly_actionable)
 
+    def test_early_disappearance_needs_many_polls(self):
+        """A bar vanishing at 16% is treated as a glitch until it stays gone much longer."""
+        self.check(BAR)
+        for _ in range(MISSING_POLLS_TO_FINISH_EARLY - 1):
+            self.assertEqual(self.check(NO_BAR).status, Status.BUILDING)
+        self.assertEqual(self.check(NO_BAR).status, Status.SUCCESS)
+
     def test_building_then_ready_after_two_missing_polls(self):
-        """Bar present is building; gone for two polls is success, notified once."""
-        result = self.check(BAR)
-        self.assertEqual((result.status, result.detail), (Status.BUILDING, "Progress 16%"))
+        """Bar near completion is building; gone for two polls is success, notified once."""
+        result = self.check(NEAR_DONE_BAR)
+        self.assertEqual((result.status, result.detail), (Status.BUILDING, "Progress 98%"))
         result = self.check(NO_BAR)
         self.assertEqual(result.status, Status.BUILDING)
         self.assertFalse(result.newly_actionable)
@@ -77,7 +85,7 @@ class AppProgressWatcherTests(unittest.TestCase):
 
     def test_acknowledge_returns_to_idle(self):
         """Acknowledging a finished result clears it."""
-        self.check(BAR)
+        self.check(NEAR_DONE_BAR)
         self.check(NO_BAR)
         self.check(NO_BAR)
         self.w.acknowledge()
@@ -95,7 +103,7 @@ class AppProgressWatcherTests(unittest.TestCase):
 
     def test_config_round_trip_renotifies_after_restart(self):
         """An unacknowledged completion survives a restart and notifies again."""
-        self.check(BAR)
+        self.check(NEAR_DONE_BAR)
         self.check(NO_BAR)
         self.check(NO_BAR)
         restored = AppProgressWatcher.from_config(self.w.to_config())
