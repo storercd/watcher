@@ -185,6 +185,42 @@ def _count_runs_awaiting_approval(pr_url: str, head_sha: str) -> int:
         return 0
 
 
+def _count_copilot_review_runs_in_progress(pr_url: str, head_sha: str) -> int:
+    """
+    Count Copilot code review workflow runs for ``head_sha`` that haven't finished.
+
+    The review runs as a separate dynamic workflow, so it never appears in
+    ``statusCheckRollup``. Best-effort: any failure yields 0.
+
+    Returns:
+        The number of unfinished Copilot code review runs.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return 0
+    endpoint = (
+        f"repos/{match.group('owner')}/{match.group('repo')}/actions/runs"
+        f"?head_sha={head_sha}&per_page=100"
+    )
+    jq = '[.workflow_runs[] | select(.status != "completed" and (.name | test("copilot code review"; "i")))] | length'
+    try:
+        proc = subprocess.run(
+            gh_command("api", endpoint, "--jq", jq),
+            capture_output=True,
+            text=True,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 0
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int(proc.stdout.strip())
+    except ValueError:
+        return 0
+
+
 def _latest_failure_time(rollup: List[Dict[str, Any]]) -> Optional[datetime]:
     """
     Find the latest completion time among failing checks.
@@ -386,6 +422,16 @@ class GitHubPRWatcher(Watcher):
         ):
             # Copilot is still working on it, so this isn't actionable yet.
             status, detail = Status.BUILDING, f"Copilot is working on a fix ({detail})"
+        elif (
+            status in (Status.SUCCESS, Status.BUILDING)
+            and head_sha
+            and _count_copilot_review_runs_in_progress(self.pr_url, head_sha)
+        ):
+            # Passing checks aren't "ready" while a Copilot review is pending.
+            if status == Status.BUILDING:
+                detail = f"{detail}, Copilot review in progress"
+            else:
+                status, detail = Status.BUILDING, f"Copilot review in progress ({detail})"
 
         # Merged PRs keep their check-derived status (a force-merge over
         # failing checks isn't green); we only annotate the detail.
