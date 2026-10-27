@@ -235,7 +235,8 @@ def app_title(session_id: str, db_path: str = APP_DB_PATH) -> str:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
         try:
             row = conn.execute(
-                "SELECT name FROM workspaces WHERE (session_id = ? OR id = ?) AND name IS NOT NULL AND name != '' LIMIT 1",
+                "SELECT name FROM workspaces WHERE (session_id = ? OR id = ?) "
+                "AND name IS NOT NULL AND name != '' LIMIT 1",
                 (session_id, session_id),
             ).fetchone()
         finally:
