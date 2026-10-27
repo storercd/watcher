@@ -28,7 +28,7 @@ def _no_copilot_events():
     """Keep tests offline: by default the PR timeline has no Copilot events."""
     with patch("watcher.watchers.github_pr._fetch_copilot_events", return_value=[]), patch(
         "watcher.watchers.github_pr._count_runs_awaiting_approval", return_value=0
-    ):
+    ), patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=0):
         yield
 
 
@@ -280,6 +280,40 @@ class TestCopilotOverridesFailure:
         """Without active Copilot work, a failing PR still reports failure."""
         mock_run.return_value = _pr_data("aaa", [_check_run("FAILURE")])
         assert GitHubPRWatcher(pr_url=PR_URL).check().status == Status.FAILURE
+
+
+class TestCopilotReviewHoldsSuccess:
+    """Passing checks are not ready while a Copilot review is running."""
+
+    @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=1)
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_success_with_review_running_is_building(self, mock_run, _review):
+        mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
+        result = GitHubPRWatcher(pr_url=PR_URL).check()
+        assert result.status == Status.BUILDING
+        assert not result.newly_actionable
+        assert "review" in result.detail
+
+    @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=1)
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_running_checks_mention_review(self, mock_run, _review):
+        mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS"), _check_run(None, "IN_PROGRESS")])
+        result = GitHubPRWatcher(pr_url=PR_URL).check()
+        assert result.status == Status.BUILDING
+        assert "checks running" in result.detail
+        assert "Copilot review" in result.detail
+
+    @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress")
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_success_notifies_once_review_finishes(self, mock_run, mock_review):
+        mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
+        mock_review.return_value = 1
+        watcher = GitHubPRWatcher(pr_url=PR_URL)
+        watcher.check()
+        mock_review.return_value = 0
+        result = watcher.check()
+        assert result.status == Status.SUCCESS
+        assert result.newly_actionable
 
 
 class TestApprovalRequired:
