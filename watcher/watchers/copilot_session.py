@@ -218,6 +218,34 @@ def is_archived(session_id: str, db_path: str = APP_DB_PATH) -> bool:
     return row is not None
 
 
+def app_title(session_id: str, db_path: str = APP_DB_PATH) -> str:
+    """
+    The session title shown in the Copilot app.
+
+    The app stores it in the ``workspaces`` table (``name``); sessions started from a
+    GitHub issue keep the placeholder ``New session`` in ``workspace.yaml``. Any
+    failure to read it means "no title".
+
+    Returns:
+        The title, or an empty string if unavailable.
+    """
+    if not os.path.exists(db_path):
+        return ""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
+        try:
+            row = conn.execute(
+                "SELECT name FROM workspaces WHERE (session_id = ? OR id = ?) "
+                "AND name IS NOT NULL AND name != '' LIMIT 1",
+                (session_id, session_id),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    return str(row[0]).strip() if row else ""
+
+
 @register
 class CopilotSessionWatcher(Watcher):
     """Watches a local GitHub Copilot app session via its events.jsonl."""
@@ -247,11 +275,14 @@ class CopilotSessionWatcher(Watcher):
 
     def default_label(self) -> str:
         """
-        Use the session name from workspace.yaml if present.
+        Use the app's session title, else the name from workspace.yaml.
 
         Returns:
             The derived label.
         """
+        title = app_title(self.session_id)
+        if title:
+            return f"Copilot: {title}"
         try:
             with open(os.path.join(self.session_dir, "workspace.yaml"), encoding="utf-8") as handle:
                 for line in handle:

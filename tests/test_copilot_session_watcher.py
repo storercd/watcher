@@ -112,3 +112,22 @@ def test_is_archived(tmp_path):
     assert is_archived("w1", db)
     assert not is_archived("s2", db)
     assert not is_archived("s1", str(tmp_path / "missing.db"))
+
+
+def test_app_title(tmp_path):
+    """The app title is read from workspaces.name by session or workspace ID."""
+    import sqlite3
+
+    from watcher.watchers.copilot_session import app_title
+
+    db = str(tmp_path / "data.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE workspaces (id TEXT, session_id TEXT, name TEXT)")
+    conn.execute("INSERT INTO workspaces VALUES ('w1', 's1', 'Real title')")
+    conn.execute("INSERT INTO workspaces VALUES ('w2', 's2', '')")
+    conn.commit()
+    conn.close()
+    assert app_title("s1", db) == "Real title"
+    assert app_title("w1", db) == "Real title"
+    assert app_title("s2", db) == ""
+    assert app_title("s1", str(tmp_path / "missing.db")) == ""
