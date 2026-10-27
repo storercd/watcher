@@ -288,6 +288,7 @@ class TestCopilotReviewHoldsSuccess:
     @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=1)
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_success_with_review_running_is_building(self, mock_run, _review):
+        """Passing checks with a running review report building."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
         result = GitHubPRWatcher(pr_url=PR_URL).check()
         assert result.status == Status.BUILDING
@@ -297,6 +298,7 @@ class TestCopilotReviewHoldsSuccess:
     @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=1)
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_running_checks_mention_review(self, mock_run, _review):
+        """Running checks and a running review are both named in the detail."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS"), _check_run(None, "IN_PROGRESS")])
         result = GitHubPRWatcher(pr_url=PR_URL).check()
         assert result.status == Status.BUILDING
@@ -306,6 +308,7 @@ class TestCopilotReviewHoldsSuccess:
     @patch("watcher.watchers.github_pr._count_copilot_review_runs_in_progress")
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_success_notifies_once_review_finishes(self, mock_run, mock_review):
+        """Success notifies once the review run completes."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
         mock_review.return_value = 1
         watcher = GitHubPRWatcher(pr_url=PR_URL)
