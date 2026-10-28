@@ -131,3 +131,29 @@ def test_app_title(tmp_path):
     assert app_title("w1", db) == "Real title"
     assert app_title("s2", db) == ""
     assert app_title("s1", str(tmp_path / "missing.db")) == ""
+
+
+def test_agent_merge_pr(tmp_path):
+    """Agent merge counts only when enabled and the session's PR is open and unmerged."""
+    import sqlite3
+
+    from watcher.watchers.copilot_session import agent_merge_pr
+
+    db = str(tmp_path / "data.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE workspaces (id TEXT, session_id TEXT, agent_merge_enabled INTEGER, "
+        "created_pr_number INTEGER, created_pr_state TEXT, created_pr_merged_at TEXT)"
+    )
+    conn.execute("INSERT INTO workspaces VALUES ('w1', 's1', 1, 42, 'open', NULL)")
+    conn.execute("INSERT INTO workspaces VALUES ('w2', 's2', 0, 43, 'open', NULL)")
+    conn.execute("INSERT INTO workspaces VALUES ('w3', 's3', 1, 44, 'closed', NULL)")
+    conn.execute("INSERT INTO workspaces VALUES ('w4', 's4', 1, 45, 'open', '2026-01-01T00:00:00Z')")
+    conn.commit()
+    conn.close()
+    assert agent_merge_pr("s1", db) == "PR #42"
+    assert agent_merge_pr("w1", db) == "PR #42"
+    assert agent_merge_pr("s2", db) == ""
+    assert agent_merge_pr("s3", db) == ""
+    assert agent_merge_pr("s4", db) == ""
+    assert agent_merge_pr("s1", str(tmp_path / "missing.db")) == ""

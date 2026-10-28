@@ -218,6 +218,34 @@ def is_archived(session_id: str, db_path: str = APP_DB_PATH) -> bool:
     return row is not None
 
 
+def agent_merge_pr(session_id: str, db_path: str = APP_DB_PATH) -> str:
+    """
+    The open PR the Copilot app's agent merge is watching for this session.
+
+    Any failure to read the DB (missing or locked, schema change) means "not watching".
+
+    Returns:
+        A label like ``PR #42`` when agent merge is enabled and the session's PR is
+        open and unmerged, otherwise an empty string.
+    """
+    if not os.path.exists(db_path):
+        return ""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
+        try:
+            row = conn.execute(
+                "SELECT created_pr_number FROM workspaces WHERE (session_id = ? OR id = ?) "
+                "AND agent_merge_enabled = 1 AND created_pr_number IS NOT NULL "
+                "AND lower(COALESCE(created_pr_state, '')) = 'open' AND created_pr_merged_at IS NULL LIMIT 1",
+                (session_id, session_id),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    return f"PR #{row[0]}" if row else ""
+
+
 def app_title(session_id: str, db_path: str = APP_DB_PATH) -> str:
     """
     The session title shown in the Copilot app.
@@ -323,6 +351,11 @@ class CopilotSessionWatcher(Watcher):
             detail = f"Cannot read session log: {exc.strerror or exc}"
             self.last_status, self.last_detail = Status.ERROR, detail
             return CheckResult(status=Status.ERROR, detail=detail)
+
+        if marker.startswith("turn:"):
+            pr = agent_merge_pr(self.session_id)
+            if pr:
+                status, detail, marker = Status.IDLE, f"Watching {pr} (agent merge)", ""
 
         if is_archived(self.session_id):
             detail = f"{detail} - archived"
