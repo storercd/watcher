@@ -1,10 +1,26 @@
 import SwiftUI
 import WatcherKit
 
+enum WatchTab: String, CaseIterable, Identifiable {
+    case immediate = "Immediate"
+    case longTerm = "Long Term"
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @EnvironmentObject var store: WatcherStore
     @State private var editing: WatcherItem?
     @State private var adding = false
+    @State private var tab: WatchTab = .immediate
+
+    private func items(in tab: WatchTab) -> [WatcherItem] {
+        store.watchers.filter { $0.isLongTerm == (tab == .longTerm) }
+    }
+
+    private func tabTitle(_ tab: WatchTab) -> String {
+        let waiting = items(in: tab).filter(\.unacknowledged).count
+        return waiting > 0 ? "\(tab.rawValue) (\(waiting))" : tab.rawValue
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +36,11 @@ struct ContentView: View {
                 }
                 .padding().frame(maxWidth: .infinity, maxHeight: .infinity)
             case .running:
+                Picker("View", selection: $tab) {
+                    ForEach(WatchTab.allCases) { Text(tabTitle($0)).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                .padding(.horizontal, 10).padding(.vertical, 6)
                 watcherList
             }
         }
@@ -38,11 +59,13 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button { adding = true } label: { Label("Add", systemImage: "plus") }
-                    .help("Add a Jenkins job, GitHub PR or Actions run to watch")
+                    .help(tab == .longTerm
+                        ? "Add a GitHub PR or issue to watch over hours or days"
+                        : "Add a Jenkins job, GitHub PR or Actions run to watch")
             }
         }
-        .sheet(isPresented: $adding) { WatcherForm(existing: nil) }
-        .sheet(item: $editing) { WatcherForm(existing: $0) }
+        .sheet(isPresented: $adding) { WatcherForm(existing: nil, defaultLongTerm: tab == .longTerm) }
+        .sheet(item: $editing) { WatcherForm(existing: $0, defaultLongTerm: false) }
         .alert("Something went wrong", isPresented: Binding(
             get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })
         ) { Button("OK") {} } message: { Text(store.errorMessage ?? "") }
@@ -68,11 +91,15 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var watcherList: some View {
-        if store.watchers.isEmpty {
-            Text("Nothing watched yet. Click + to add a Jenkins job, PR, Actions run or running app.")
-                .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+        let shown = items(in: tab)
+        if shown.isEmpty {
+            Text(tab == .longTerm
+                ? "Nothing on the long-term list. Click + to watch a PR or issue for a merge, close or any activity."
+                : "Nothing watched yet. Click + to add a Jenkins job, PR, Actions run or running app.")
+                .foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(store.watchers) { item in
+            List(shown) { item in
                 WatcherRow(item: item)
                     .contentShape(Rectangle())
                     .onTapGesture { open(item) }
@@ -112,6 +139,9 @@ struct WatcherRow: View {
                 }
                 Text(shownDetail)
                     .font(font(11)).foregroundStyle(.secondary).lineLimit(2)
+                if item.isLongTerm, let summary = longTermSummary {
+                    Text(summary).font(font(10)).foregroundStyle(.secondary)
+                }
                 if !item.notes.isEmpty { Text(item.notes).font(font(10)).foregroundStyle(.tertiary) }
                 if let checked = item.lastChecked {
                     Text("Checked \(Date(timeIntervalSince1970: checked), style: .relative) ago")
@@ -127,6 +157,12 @@ struct WatcherRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .help(item.url ?? "")
+    }
+
+    private var longTermSummary: String? {
+        guard let trigger = item.trigger.flatMap(LongTermTrigger.init(rawValue:)) else { return nil }
+        guard let seconds = item.pollInterval else { return "Alerts on: \(trigger.title)" }
+        return "Alerts on: \(trigger.title) · checks every \(formatInterval(seconds))"
     }
 
     // Watchers append " - merged" / " - archived" to the detail when the work is finished.
@@ -189,4 +225,10 @@ struct UpdateBanner: View {
         }
         .padding(8).background(.yellow.opacity(0.25))
     }
+}
+
+func formatInterval(_ seconds: Double) -> String {
+    if seconds >= 86400, seconds.truncatingRemainder(dividingBy: 86400) == 0 { return "\(Int(seconds / 86400)) d" }
+    if seconds >= 3600, seconds.truncatingRemainder(dividingBy: 3600) == 0 { return "\(Int(seconds / 3600)) h" }
+    return "\(Int((seconds / 60).rounded())) min"
 }

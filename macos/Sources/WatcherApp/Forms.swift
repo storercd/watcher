@@ -7,7 +7,13 @@ struct WatcherForm: View {
     @EnvironmentObject var store: WatcherStore
     @Environment(\.dismiss) private var dismiss
     let existing: WatcherItem?
+    let defaultLongTerm: Bool
 
+    private static let intervalChoices: [Double] = [300, 600, 1800, 3600, 14400, 86400]
+
+    @State private var longTerm = false
+    @State private var trigger: LongTermTrigger = .closed
+    @State private var interval: Double = 600
     @State private var url = ""
     @State private var label = ""
     @State private var notes = ""
@@ -16,18 +22,36 @@ struct WatcherForm: View {
     @State private var windowTitle = ""
     @State private var readDockIcon = false
 
-    private var appTarget: AppTarget? { AppTarget(url: url) }
+    private var appTarget: AppTarget? { longTerm ? nil : AppTarget(url: url) }
+    private var triggerChoices: [LongTermTrigger] { LongTermTrigger.available(for: url) }
 
     var body: some View {
         Form {
             HStack {
-                TextField("URL", text: $url, prompt: Text("Jenkins job, GitHub PR or Actions run URL"))
-                Menu("Running app…") {
-                    ForEach(runningApps, id: \.bundleIdentifier) { app in
-                        Button(app.localizedName ?? app.bundleIdentifier ?? "") { choose(app) }
+                TextField(
+                    "URL", text: $url,
+                    prompt: Text(longTerm ? "GitHub PR or issue URL" : "Jenkins job, GitHub PR or Actions run URL"))
+                if !longTerm {
+                    Menu("Running app…") {
+                        ForEach(runningApps, id: \.bundleIdentifier) { app in
+                            Button(app.localizedName ?? app.bundleIdentifier ?? "") { choose(app) }
+                        }
+                    }
+                    .fixedSize()
+                }
+            }
+            if longTerm {
+                Picker("Alert on", selection: $trigger) {
+                    ForEach(triggerChoices, id: \.self) { Text($0.title).tag($0) }
+                }
+                .onChange(of: url) { _ in
+                    if !triggerChoices.contains(trigger) { trigger = .closed }
+                }
+                Picker("Check every", selection: $interval) {
+                    ForEach(Self.intervalChoices + (Self.intervalChoices.contains(interval) ? [] : [interval]), id: \.self) {
+                        Text(formatInterval($0)).tag($0)
                     }
                 }
-                .fixedSize()
             }
             if let target = appTarget {
                 TextField(
@@ -62,7 +86,13 @@ struct WatcherForm: View {
         }
         .padding().frame(width: 460)
         .onAppear {
-            guard let existing else { return }
+            guard let existing else {
+                longTerm = defaultLongTerm
+                return
+            }
+            longTerm = existing.isLongTerm
+            trigger = existing.trigger.flatMap(LongTermTrigger.init(rawValue:)) ?? .closed
+            interval = existing.pollInterval ?? 600
             url = existing.url ?? ""
             windowTitle = AppTarget(url: url)?.windowTitle ?? ""
             readDockIcon = AppTarget(url: url)?.readDockIcon ?? false
@@ -92,10 +122,17 @@ struct WatcherForm: View {
     private func submit() {
         busy = true
         let (url, label, notes) = (url.trimmingCharacters(in: .whitespaces), label, notes)
+        let (longTerm, trigger, interval) = (longTerm, trigger.rawValue, interval)
         Task {
             let failure = await store.perform { client in
                 if let existing {
-                    _ = try await client.updateWatcher(id: existing.id, url: url, label: label, notes: notes)
+                    _ = try await client.updateWatcher(
+                        id: existing.id, url: url, label: label, notes: notes,
+                        trigger: longTerm ? trigger : nil, pollInterval: longTerm ? interval : nil)
+                } else if longTerm {
+                    _ = try await client.addWatcher(
+                        url: url, label: label, notes: notes,
+                        category: "long_term", trigger: trigger, pollInterval: interval)
                 } else {
                     _ = try await client.addWatcher(url: url, label: label, notes: notes)
                 }

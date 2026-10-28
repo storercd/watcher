@@ -44,13 +44,25 @@ public final class APIClient: @unchecked Sendable {
         try JSONDecoder().decode(EngineState.self, from: try await send("GET", "/v1/state"))
     }
 
-    public func addWatcher(url: String, label: String, notes: String) async throws -> WatcherItem {
-        let data = try await send("POST", "/v1/watchers", body: ["url": url, "label": label, "notes": notes])
+    public func addWatcher(
+        url: String, label: String, notes: String,
+        category: String = "immediate", trigger: String? = nil, pollInterval: Double? = nil
+    ) async throws -> WatcherItem {
+        var body: [String: Any] = ["url": url, "label": label, "notes": notes, "category": category]
+        if let trigger { body["trigger"] = trigger }
+        if let pollInterval { body["poll_interval"] = pollInterval }
+        let data = try await send("POST", "/v1/watchers", body: body)
         return try JSONDecoder().decode(WatcherItem.self, from: data)
     }
 
-    public func updateWatcher(id: String, url: String, label: String, notes: String) async throws -> WatcherItem {
-        let data = try await send("PATCH", "/v1/watchers/\(id)", body: ["url": url, "label": label, "notes": notes])
+    public func updateWatcher(
+        id: String, url: String, label: String, notes: String,
+        trigger: String? = nil, pollInterval: Double? = nil
+    ) async throws -> WatcherItem {
+        var body: [String: Any] = ["url": url, "label": label, "notes": notes]
+        if let trigger { body["trigger"] = trigger }
+        if let pollInterval { body["poll_interval"] = pollInterval }
+        let data = try await send("PATCH", "/v1/watchers/\(id)", body: body)
         return try JSONDecoder().decode(WatcherItem.self, from: data)
     }
 

@@ -107,3 +107,25 @@ import Testing
         #expect(AppTarget(url: "app://") == nil)
     }
 }
+
+@Suite struct LongTermTests {
+    @Test func decodesLongTermFieldsAndToleratesTheirAbsence() throws {
+        let long = """
+            {"id":"1","type":"github_item","label":"L","notes":"","url":"https://github.com/a/b/pull/1",
+            "status":"idle","detail":"d","last_checked":null,"unacknowledged":false,
+            "category":"long_term","trigger":"activity","poll_interval":600}
+            """
+        let item = try JSONDecoder().decode(WatcherItem.self, from: Data(long.utf8))
+        #expect(item.isLongTerm && item.trigger == "activity" && item.pollInterval == 600)
+        let old = """
+            {"id":"1","type":"jenkins","label":"L","notes":"","url":"http://x",
+            "status":"idle","detail":"d","last_checked":null,"unacknowledged":false}
+            """
+        #expect(try JSONDecoder().decode(WatcherItem.self, from: Data(old.utf8)).isLongTerm == false)
+    }
+
+    @Test func checksTriggerIsPullRequestOnly() {
+        #expect(LongTermTrigger.available(for: "https://github.com/a/b/pull/1").contains(.checks))
+        #expect(!LongTermTrigger.available(for: "https://github.com/a/b/issues/1").contains(.checks))
+    }
+}

@@ -26,6 +26,7 @@ class Scheduler:
         """Initialize the scheduler with a poll interval, in seconds, between rounds."""
         self.poll_interval = poll_interval
         self._watchers: Dict[str, Watcher] = {}
+        self._last_polled: Dict[str, float] = {}
         self._stop_event = threading.Event()
         self._thread: threading.Thread = None
         self.results: "queue.Queue[tuple[str, CheckResult]]" = queue.Queue()
@@ -37,10 +38,13 @@ class Scheduler:
     def add_watcher(self, watcher: Watcher) -> None:
         """Add a single watcher to the polled set."""
         self._watchers[watcher.id] = watcher
+        # A new or replaced watcher is due immediately.
+        self._last_polled.pop(watcher.id, None)
 
     def remove_watcher(self, watcher_id: str) -> None:
         """Remove a watcher from the polled set by id, if present."""
         self._watchers.pop(watcher_id, None)
+        self._last_polled.pop(watcher_id, None)
 
     def start(self) -> None:
         """Start the background polling thread if it isn't already running."""
@@ -54,10 +58,23 @@ class Scheduler:
         """Signal the background polling thread to stop."""
         self._stop_event.set()
 
-    def poll_once_async(self) -> None:
-        """Trigger an immediate out-of-band poll of all watchers (e.g. after add)."""
+    def poll_once_async(self, force: bool = False) -> None:
+        """
+        Trigger an immediate out-of-band poll (e.g. after add).
+
+        Args:
+            force: Poll every watcher even if its own interval hasn't
+                elapsed; otherwise only watchers that are due are polled.
+        """
         logger.debug("spawning out-of-band poll_once_async thread")
-        threading.Thread(target=self._poll_all, daemon=True, name="watcher-poll-once").start()
+        threading.Thread(
+            target=self._poll_all, args=(force,), daemon=True, name="watcher-poll-once"
+        ).start()
+
+    def _is_due(self, watcher: Watcher, now: float) -> bool:
+        interval = watcher.poll_interval
+        last = self._last_polled.get(watcher.id)
+        return not interval or last is None or now - last >= interval
 
     def _run(self) -> None:
         logger.debug("scheduler thread started (poll_interval=%ss)", self.poll_interval)
@@ -66,12 +83,15 @@ class Scheduler:
             self._stop_event.wait(self.poll_interval)
         logger.debug("scheduler thread stopped")
 
-    def _poll_all(self) -> None:
+    def _poll_all(self, force: bool = False) -> None:
         watchers = list(self._watchers.items())
         logger.debug("poll round starting for %d watcher(s)", len(watchers))
         round_start = time.monotonic()
         for watcher_id, watcher in watchers:
             check_start = time.monotonic()
+            if not force and not self._is_due(watcher, check_start):
+                continue
+            self._last_polled[watcher_id] = check_start
             try:
                 result = watcher.check()
             except Exception as exc:  # noqa: BLE001 - surface any plugin error

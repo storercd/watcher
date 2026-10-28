@@ -34,10 +34,21 @@ from watcher.watchers.app_progress import AppProgressWatcher  # noqa: F401
 from watcher.watchers.aws_step_function import AwsStepFunctionWatcher  # noqa: F401
 from watcher.watchers.copilot_session import CopilotSessionWatcher  # noqa: F401
 from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa: F401
+from watcher.watchers.github_item import GitHubItemWatcher, triggers_for_url
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401
 
 logger = logging.getLogger("watcher.engine")
+
+CATEGORY_IMMEDIATE = "immediate"
+CATEGORY_LONG_TERM = "long_term"
+# Default seconds between checks for long-term watchers.
+LONG_TERM_POLL_INTERVAL = 600
+
+LONG_TERM_UNRECOGNIZED_URL_MESSAGE = (
+    "Long-term watching supports GitHub pull request and issue URLs "
+    "(github.com/owner/repo/pull/123 or github.com/owner/repo/issues/123)."
+)
 
 NUDGE_INTERVAL_SECONDS = 5.0
 RESULT_POLL_SECONDS = 0.5
@@ -200,6 +211,9 @@ class Engine:
             "detail": watcher.last_detail,
             "last_checked": watcher.last_checked,
             "unacknowledged": watcher.unacknowledged,
+            "category": watcher.category,
+            "poll_interval": watcher.poll_interval,
+            "trigger": getattr(watcher, "trigger", None),
         }
 
     def list_watchers(self) -> List[Dict[str, Any]]:
@@ -261,14 +275,34 @@ class Engine:
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
-    def add_watcher(self, url: str, label: str = "", notes: str = "") -> Dict[str, Any]:
+    def add_watcher(
+        self,
+        url: str,
+        label: str = "",
+        notes: str = "",
+        category: str = CATEGORY_IMMEDIATE,
+        trigger: Optional[str] = None,
+        poll_interval: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         Detect the watcher type for ``url``, start watching it, and persist.
 
+        Args:
+            url: What to watch.
+            label: Optional display label.
+            notes: Optional freeform notes.
+            category: ``immediate`` (auto-detected type) or ``long_term``
+                (a GitHub PR/issue with a ``trigger``).
+            trigger: Long-term event to alert on (see ``github_item``).
+            poll_interval: Seconds between checks; long-term watchers
+                default to ``LONG_TERM_POLL_INTERVAL``.
+
         Returns:
-            The new watcher's snapshot.
+            The new watcher's snapshot. Raises ValueError for an
+            unrecognized URL or invalid category/trigger/interval.
         """
-        watcher = self._construct_watcher(url, label, notes)
+        watcher = self._construct_watcher(url, label, notes, category=category, trigger=trigger)
+        watcher.poll_interval = self._validated_interval(poll_interval, category)
         with self._lock:
             self.watchers[watcher.id] = watcher
             self.scheduler.add_watcher(watcher)
@@ -284,33 +318,51 @@ class Engine:
         url: Optional[str] = None,
         label: Optional[str] = None,
         notes: Optional[str] = None,
+        trigger: Optional[str] = None,
+        poll_interval: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Edit a watcher's URL, label and/or notes; omitted fields are kept.
+        Edit a watcher's URL, label, notes, trigger and/or poll interval.
 
-        If the URL changes, the watcher is replaced in place (same id) and
-        its status resets, since it now points at something else.
+        Omitted fields are kept. If the URL or trigger changes, the watcher
+        is replaced in place (same id) and its status resets, since it now
+        points at something else.
 
         Returns:
             The updated snapshot. An unknown ``watcher_id`` raises KeyError, and
-            an unrecognized or rejected new URL raises ValueError.
+            an unrecognized or rejected new URL/trigger/interval raises ValueError.
         """
         with self._lock:
             watcher = self.watchers[watcher_id]
             new_label = watcher.label if label is None else label
             new_notes = watcher.notes if notes is None else notes
+            category = watcher.category
+            new_interval = (
+                watcher.poll_interval
+                if poll_interval is None
+                else self._validated_interval(poll_interval, category)
+            )
             url_changed = url is not None and url != (watcher.display_url or "")
-            if url_changed:
-                watcher = self._construct_watcher(url, new_label, new_notes, watcher_id=watcher_id)
+            trigger_changed = trigger is not None and trigger != getattr(watcher, "trigger", None)
+            if url_changed or trigger_changed:
+                watcher = self._construct_watcher(
+                    url if url_changed else (watcher.display_url or ""),
+                    new_label,
+                    new_notes,
+                    watcher_id=watcher_id,
+                    category=category,
+                    trigger=trigger if trigger_changed else getattr(watcher, "trigger", None),
+                )
                 self.watchers[watcher_id] = watcher
                 self.scheduler.add_watcher(watcher)
             else:
                 watcher.label = new_label.strip() or watcher.default_label()
                 watcher.notes = new_notes
+            watcher.poll_interval = new_interval
             self._save()
             snapshot = self.snapshot_watcher(watcher)
         self._publish({"type": "watcher_updated", "watcher": snapshot})
-        if url_changed:
+        if url_changed or trigger_changed:
             self.scheduler.poll_once_async()
         return snapshot
 
@@ -348,8 +400,8 @@ class Engine:
         return snapshot
 
     def poll_now(self) -> None:
-        """Trigger an immediate out-of-band poll of every watcher."""
-        self.scheduler.poll_once_async()
+        """Trigger an immediate out-of-band poll of every watcher, ignoring per-watcher intervals."""
+        self.scheduler.poll_once_async(force=True)
 
     def update_settings(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -398,12 +450,34 @@ class Engine:
     # Internals
     # ------------------------------------------------------------------
     def _construct_watcher(
-        self, url: str, label: str, notes: str, watcher_id: Optional[str] = None
+        self,
+        url: str,
+        label: str,
+        notes: str,
+        watcher_id: Optional[str] = None,
+        category: str = CATEGORY_IMMEDIATE,
+        trigger: Optional[str] = None,
     ) -> Watcher:
+        if category == CATEGORY_LONG_TERM:
+            if not triggers_for_url(url):
+                raise ValueError(LONG_TERM_UNRECOGNIZED_URL_MESSAGE)
+            return GitHubItemWatcher(url, watcher_id=watcher_id, label=label, notes=notes, trigger=trigger)
+        if category != CATEGORY_IMMEDIATE:
+            raise ValueError(f"Unknown category: {category!r}")
+        if trigger is not None:
+            raise ValueError("Triggers are only supported for long-term watchers")
         watcher_cls = detect_watcher_class(url)
         if watcher_cls is None:
             raise ValueError(UNRECOGNIZED_URL_MESSAGE)
         return watcher_cls(url, watcher_id=watcher_id, label=label, notes=notes)
+
+    @staticmethod
+    def _validated_interval(interval: Optional[float], category: str) -> Optional[float]:
+        if interval is None:
+            return LONG_TERM_POLL_INTERVAL if category == CATEGORY_LONG_TERM else None
+        if isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 1:
+            raise ValueError("poll_interval must be a number >= 1")
+        return interval
 
     def _load_watchers_from_config(self) -> None:
         for entry in self.config.get("watchers", []):
@@ -412,6 +486,11 @@ class Engine:
             except (KeyError, ValueError) as exc:
                 logger.warning("skipping invalid config entry %r: %s", entry, exc)
                 continue
+            if entry.get("category") in (CATEGORY_IMMEDIATE, CATEGORY_LONG_TERM):
+                watcher.category = entry["category"]
+            interval = entry.get("poll_interval")
+            if isinstance(interval, (int, float)) and not isinstance(interval, bool) and interval >= 1:
+                watcher.poll_interval = interval
             self.watchers[watcher.id] = watcher
 
     def _save(self) -> None:

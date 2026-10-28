@@ -77,4 +77,10 @@ def watchers_to_config_list(watchers: List) -> List[Dict[str, Any]]:
     Returns:
         A list of config dicts, one per watcher.
     """
-    return [w.to_config() for w in watchers]
+    entries = []
+    for w in watchers:
+        entry = w.to_config()
+        entry["category"] = w.category
+        entry["poll_interval"] = w.poll_interval
+        entries.append(entry)
+    return entries

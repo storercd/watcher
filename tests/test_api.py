@@ -19,7 +19,7 @@ TOKEN = "test-token"
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     """Serve an engine over the API on a free port."""
-    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self: None)
+    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self, force=False: None)
     registry.register(FakeWatcher)
     engine = Engine(config_path=tmp_path / "config.json", check_updates=False, deliver_notifications=False)
     srv = WatcherApiServer(engine, token=TOKEN)

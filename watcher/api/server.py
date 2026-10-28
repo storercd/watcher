@@ -199,10 +199,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _patch_watcher(self, watcher_id: str) -> Dict[str, Any]:
         body = self._read_json()
-        self._require_strings(body, ("url", "label", "notes"))
+        self._require_strings(body, ("url", "label", "notes", "trigger"))
         try:
             return self.server.engine.update_watcher(
-                watcher_id, url=body.get("url"), label=body.get("label"), notes=body.get("notes")
+                watcher_id,
+                url=body.get("url"),
+                label=body.get("label"),
+                notes=body.get("notes"),
+                trigger=body.get("trigger"),
+                poll_interval=body.get("poll_interval"),
             )
         except KeyError as exc:
             raise ApiError(HTTPStatus.NOT_FOUND, "Unknown watcher") from exc
@@ -218,11 +223,18 @@ class _Handler(BaseHTTPRequestHandler):
     # -- handlers -------------------------------------------------------
     def _add_watcher(self) -> Tuple[HTTPStatus, Any]:
         body = self._read_json()
-        self._require_strings(body, ("url", "label", "notes"))
+        self._require_strings(body, ("url", "label", "notes", "category", "trigger"))
         if not body.get("url"):
             raise ApiError(HTTPStatus.BAD_REQUEST, "'url' is required")
         try:
-            snapshot = self.server.engine.add_watcher(body["url"], body.get("label", ""), body.get("notes", ""))
+            snapshot = self.server.engine.add_watcher(
+                body["url"],
+                body.get("label", ""),
+                body.get("notes", ""),
+                category=body.get("category", "immediate"),
+                trigger=body.get("trigger"),
+                poll_interval=body.get("poll_interval"),
+            )
         except ValueError as exc:
             raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return HTTPStatus.CREATED, snapshot

@@ -237,6 +237,17 @@ python -m watcher.api --exit-on-stdin-close
 Every request needs `Authorization: Bearer <token>`. See
 [`docs/api.yaml`](docs/api.yaml) for the full contract.
 
+### Long-term watchers
+
+Besides the default `immediate` watchers (polled every few seconds), the API
+can add `long_term` watchers for GitHub PR/issue URLs that may take hours or
+days: `POST /v1/watchers` with `"category": "long_term"`, a `trigger`, and an
+optional `poll_interval` (seconds, default 600). Triggers: `closed` (PR
+merged/closed or issue closed; the default), `activity` (any update to the
+item), and `checks` (PR status checks finished; PRs only). The first poll of
+an `activity` watcher records a baseline rather than alerting. Alerts stay
+highlighted and re-notify until acknowledged, like immediate watchers.
+
 ## Plugin architecture
 
 Watcher is built so that new "things to watch" (AWS Step Functions, a
