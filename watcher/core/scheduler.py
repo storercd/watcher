@@ -38,6 +38,8 @@ class Scheduler:
     def add_watcher(self, watcher: Watcher) -> None:
         """Add a single watcher to the polled set."""
         self._watchers[watcher.id] = watcher
+        # A new or replaced watcher is due immediately.
+        self._last_polled.pop(watcher.id, None)
 
     def remove_watcher(self, watcher_id: str) -> None:
         """Remove a watcher from the polled set by id, if present."""
