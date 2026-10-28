@@ -15,11 +15,38 @@ public struct WatcherItem: Codable, Identifiable, Equatable, Sendable {
     public var detail: String
     public var lastChecked: Double?
     public var unacknowledged: Bool
+    /// "immediate" or "long_term"; nil when talking to an older core.
+    public var category: String?
+    /// Long-term trigger: "closed", "activity" or "checks".
+    public var trigger: String?
+    /// Seconds between checks for this watcher; nil uses the global interval.
+    public var pollInterval: Double?
+
+    public var isLongTerm: Bool { category == "long_term" }
 
     enum CodingKeys: String, CodingKey {
         case id, type, label, notes, url, status, detail
         case lastChecked = "last_checked"
-        case unacknowledged
+        case unacknowledged, category, trigger
+        case pollInterval = "poll_interval"
+    }
+}
+
+/// Events a long-term watcher can alert on, as accepted by the API.
+public enum LongTermTrigger: String, CaseIterable, Sendable {
+    case closed, activity, checks
+
+    public var title: String {
+        switch self {
+        case .closed: return "Merged / closed"
+        case .activity: return "Any activity"
+        case .checks: return "Checks finished"
+        }
+    }
+
+    /// Triggers that make sense for a GitHub URL (checks only exist on pull requests).
+    public static func available(for url: String) -> [LongTermTrigger] {
+        url.contains("/pull/") ? allCases : allCases.filter { $0 != .checks }
     }
 }
 
