@@ -117,7 +117,10 @@ import Testing
             """
         let item = try JSONDecoder().decode(WatcherItem.self, from: Data(long.utf8))
         #expect(item.isLongTerm && item.trigger == "activity" && item.pollInterval == 600)
-        let old = long.replacingOccurrences(of: ",\"category\":\"long_term\",\"trigger\":\"activity\",\"poll_interval\":600", with: "")
+        let old = """
+            {"id":"1","type":"jenkins","label":"L","notes":"","url":"http://x",
+            "status":"idle","detail":"d","last_checked":null,"unacknowledged":false}
+            """
         #expect(try JSONDecoder().decode(WatcherItem.self, from: Data(old.utf8)).isLongTerm == false)
     }
 
