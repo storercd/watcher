@@ -40,7 +40,7 @@ paths:
       summary: Add a watcher; the type is auto-detected from the URL
       requestBody:
         required: true
-        content: {application/json: {schema: {type: object, required: [url], properties: {url: {type: string}, label: {type: string}, notes: {type: string}}}}}
+        content: {application/json: {schema: {type: object, required: [url], properties: {url: {type: string}, label: {type: string}, notes: {type: string}, category: {type: string, enum: [immediate, long_term], default: immediate, description: "long_term supports only GitHub PR/issue URLs"}, trigger: {type: string, enum: [checks, closed, activity], description: "long_term only (default closed). checks is PR-only; closed = merged/closed; activity = any update"}, poll_interval: {type: number, minimum: 1, description: "Seconds between checks for this watcher (long_term default 600)"}}}}}
       responses:
         "201": {description: Created, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}
         "400": {description: Missing or mistyped field}
@@ -51,9 +51,9 @@ paths:
       summary: Get one watcher
       responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}}
     patch:
-      summary: Edit url, label and/or notes (omitted fields are kept). Changing the URL resets status.
+      summary: Edit url, label, notes, trigger and/or poll_interval (omitted fields are kept). Changing the URL or trigger resets status.
       requestBody:
-        content: {application/json: {schema: {type: object, properties: {url: {type: string}, label: {type: string}, notes: {type: string}}}}}
+        content: {application/json: {schema: {type: object, properties: {url: {type: string}, label: {type: string}, notes: {type: string}, trigger: {type: string, enum: [checks, closed, activity]}, poll_interval: {type: number, minimum: 1}}}}}
       responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}, "422": {description: URL rejected}}
     delete:
       summary: Stop watching
@@ -109,9 +109,12 @@ components:
       type: object
       properties:
         id: {type: string}
-        type: {type: string, enum: [jenkins, github_pr, github_actions_run, aws_step_function]}
+        type: {type: string, enum: [jenkins, github_pr, github_item, github_actions_run, aws_step_function]}
         label: {type: string}
         notes: {type: string}
+        category: {type: string, enum: [immediate, long_term]}
+        trigger: {type: string, nullable: true, description: Long-term trigger; null for immediate watchers}
+        poll_interval: {type: number, nullable: true, description: Per-watcher seconds between checks; null uses the global interval}
         url: {type: string, nullable: true}
         status: {type: string, enum: [unknown, idle, building, success, failure, approval_required, error]}
         detail: {type: string}

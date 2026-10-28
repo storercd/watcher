@@ -63,7 +63,7 @@ def fake_type():
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
     """Build an engine with no network polling or notification delivery."""
-    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self: None)
+    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self, force=False: None)
     return Engine(config_path=tmp_path / "config.json", check_updates=False, deliver_notifications=False)
 
 
@@ -133,7 +133,7 @@ def test_newly_actionable_result_emits_notification_and_acknowledge_clears(engin
 
 def test_engine_delivers_notifications_when_enabled(tmp_path, monkeypatch):
     """With deliver_notifications=True the engine calls the router itself."""
-    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self: None)
+    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self, force=False: None)
     engine = Engine(config_path=tmp_path / "c.json", check_updates=False, deliver_notifications=True)
     sent = []
     monkeypatch.setattr(engine.router, "notify", lambda title, message: sent.append((title, message)))
@@ -162,7 +162,7 @@ def test_settings_roundtrip_and_validation(engine, tmp_path):
 
 def test_watchers_reload_from_config(tmp_path, monkeypatch):
     """A new engine on the same config restores the saved watchers."""
-    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self: None)
+    monkeypatch.setattr("watcher.core.scheduler.Scheduler.poll_once_async", lambda self, force=False: None)
     first = Engine(config_path=tmp_path / "c.json", check_updates=False, deliver_notifications=False)
     snap = first.add_watcher("fake://one", label="One")
 

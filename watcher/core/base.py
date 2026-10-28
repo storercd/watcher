@@ -63,6 +63,11 @@ class Watcher(ABC):
         # Freeform text for "why this mattered" / follow-up reminders; viewed/edited
         # by clicking the notes icon in the GUI.
         self.notes = notes
+        # "immediate" (short-term, polled every round) or "long_term"
+        # (hours/days). Set by the engine; persisted by the config layer.
+        self.category: str = "immediate"
+        # Seconds between checks for this watcher; None uses the global interval.
+        self.poll_interval: Optional[float] = None
         self.last_status: Status = Status.UNKNOWN
         self.last_checked: Optional[float] = None
         self.last_detail: str = ""
