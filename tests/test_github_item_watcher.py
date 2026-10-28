@@ -75,7 +75,7 @@ class TestClosedTrigger:
         assert _check(GitHubItemWatcher(PR_URL), _view("MERGED")).newly_actionable
 
     def test_gh_error_reports_error(self):
-        """gh failures surface as an error status."""
+        """A failing gh call surfaces as an error status."""
         watcher = GitHubItemWatcher(PR_URL)
         with patch("watcher.watchers.github_item._run_gh_view", side_effect=RuntimeError("boom")):
             assert watcher.check().status == Status.ERROR
