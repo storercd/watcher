@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from watcher.core.base import CheckResult, Status, Watcher
-from watcher.core.gh_cli import gh_command
+from watcher.core.gh_cli import run_gh
 from watcher.core.registry import register
 
 REQUEST_TIMEOUT_SECONDS = 20
@@ -74,13 +74,7 @@ def _run_gh_pr_view(pr_url: str) -> Dict[str, Any]:
     """
     fields = "headRefOid,number,title,state,url,statusCheckRollup"
     try:
-        proc = subprocess.run(
-            gh_command("pr", "view", pr_url, "--json", fields),
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        proc = run_gh("pr", "view", pr_url, "--json", fields, timeout=REQUEST_TIMEOUT_SECONDS)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "gh CLI not found. Install it from https://cli.github.com/ and run `gh auth login`."
@@ -129,13 +123,7 @@ def _fetch_copilot_events(pr_url: str) -> List[Dict[str, Any]]:
     endpoint = f"repos/{match.group('owner')}/{match.group('repo')}/issues/{match.group('number')}/timeline"
     jq = '.[] | select(.event | startswith("copilot_work")) | {event, created_at}'
     try:
-        proc = subprocess.run(
-            gh_command("api", endpoint, "--paginate", "--jq", jq),
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        proc = run_gh("api", endpoint, "--paginate", "--jq", jq, timeout=REQUEST_TIMEOUT_SECONDS)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
     if proc.returncode != 0:
@@ -168,13 +156,7 @@ def _count_runs_awaiting_approval(pr_url: str, head_sha: str) -> int:
         f"?head_sha={head_sha}&status=action_required&per_page=100"
     )
     try:
-        proc = subprocess.run(
-            gh_command("api", endpoint, "--jq", ".total_count"),
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        proc = run_gh("api", endpoint, "--jq", ".total_count", timeout=REQUEST_TIMEOUT_SECONDS)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return 0
     if proc.returncode != 0:
@@ -204,13 +186,7 @@ def _count_copilot_review_runs_in_progress(pr_url: str, head_sha: str) -> int:
     )
     jq = '[.workflow_runs[] | select(.status != "completed" and (.name | test("copilot code review"; "i")))] | length'
     try:
-        proc = subprocess.run(
-            gh_command("api", endpoint, "--jq", jq),
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        proc = run_gh("api", endpoint, "--jq", jq, timeout=REQUEST_TIMEOUT_SECONDS)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return 0
     if proc.returncode != 0:

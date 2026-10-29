@@ -21,7 +21,7 @@ import subprocess
 from typing import Any, Dict, Optional
 
 from watcher.core.base import CheckResult, Status, Watcher
-from watcher.core.gh_cli import gh_command
+from watcher.core.gh_cli import run_gh
 from watcher.core.registry import register
 from watcher.watchers.github_pr import GitHubPRWatcher
 
@@ -81,13 +81,7 @@ def _run_gh_view(kind: str, url: str) -> Dict[str, Any]:
     """
     subcommand = "pr" if kind == "pull" else "issue"
     try:
-        proc = subprocess.run(
-            gh_command(subcommand, "view", url, "--json", "state,updatedAt,title"),
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        proc = run_gh(subcommand, "view", url, "--json", "state,updatedAt,title", timeout=REQUEST_TIMEOUT_SECONDS)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "gh CLI not found. Install it from https://cli.github.com/ and run `gh auth login`."
