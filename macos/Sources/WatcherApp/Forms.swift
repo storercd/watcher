@@ -21,6 +21,7 @@ struct WatcherForm: View {
     @State private var busy = false
     @State private var windowTitle = ""
     @State private var readDockIcon = false
+    @State private var commands: [TerminalCommand] = []
 
     private var appTarget: AppTarget? { longTerm ? nil : AppTarget(url: url) }
     private var triggerChoices: [LongTermTrigger] { LongTermTrigger.available(for: url) }
@@ -38,6 +39,15 @@ struct WatcherForm: View {
                         }
                     }
                     .fixedSize()
+                    Menu("Running command…") {
+                        if commands.isEmpty { Text("No commands running in a terminal") }
+                        ForEach(commands) { command in
+                            Button("\(command.title) (\(formatElapsed(command.elapsed)))") { choose(command) }
+                        }
+                        Divider()
+                        Button("Refresh") { loadCommands() }
+                    }
+                    .fixedSize()
                 }
             }
             if longTerm {
@@ -52,6 +62,10 @@ struct WatcherForm: View {
                         Text(formatInterval($0)).tag($0)
                     }
                 }
+            }
+            if ProcessTarget.isProcessURL(url) {
+                Text("Alerts when this command exits. Success or failure isn't reported, only that it finished.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let target = appTarget {
                 TextField(
@@ -86,6 +100,7 @@ struct WatcherForm: View {
         }
         .padding().frame(width: 460)
         .onAppear {
+            loadCommands()
             guard let existing else {
                 longTerm = defaultLongTerm
                 return
@@ -106,6 +121,24 @@ struct WatcherForm: View {
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
             .filter { $0.bundleIdentifier != Bundle.main.bundleIdentifier }
             .sorted { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }
+    }
+
+    private func loadCommands() {
+        Task {
+            var loaded: [TerminalCommand] = []
+            _ = await store.perform { loaded = try await $0.terminalCommands() }
+            commands = loaded
+        }
+    }
+
+    private func choose(_ command: TerminalCommand) {
+        url = command.url
+        if label.isEmpty { label = "Command: \(command.title)" }
+    }
+
+    private func formatElapsed(_ seconds: Int) -> String {
+        if seconds >= 3600 { return "\(seconds / 3600)h \(seconds % 3600 / 60)m" }
+        return seconds >= 60 ? "\(seconds / 60)m" : "\(seconds)s"
     }
 
     private func choose(_ app: NSRunningApplication) {

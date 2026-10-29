@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from watcher import __full_version__
+from watcher.core import processes
 from watcher.core.engine import Engine
 
 logger = logging.getLogger("watcher.api")
@@ -160,6 +161,7 @@ class _Handler(BaseHTTPRequestHandler):
             ("GET", f"{API_PREFIX}/state"): lambda: (HTTPStatus.OK, engine.get_state()),
             ("GET", f"{API_PREFIX}/watchers"): lambda: (HTTPStatus.OK, engine.list_watchers()),
             ("POST", f"{API_PREFIX}/watchers"): self._add_watcher,
+            ("GET", f"{API_PREFIX}/processes"): lambda: (HTTPStatus.OK, processes.list_terminal_commands()),
             ("POST", f"{API_PREFIX}/poll"): self._poll,
             ("GET", f"{API_PREFIX}/settings"): lambda: (HTTPStatus.OK, engine.get_settings()),
             ("PATCH", f"{API_PREFIX}/settings"): self._patch_settings,

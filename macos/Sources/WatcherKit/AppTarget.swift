@@ -50,3 +50,43 @@ public struct AppTarget: Equatable, Sendable {
         text.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")) ?? text
     }
 }
+
+/// A command running in a terminal, as listed by the core's `/v1/processes` endpoint.
+public struct TerminalCommand: Codable, Identifiable, Equatable, Sendable {
+    public let pid: Int
+    public let tty: String
+    public let started: Double
+    public let elapsed: Int
+    public let command: String
+    public let cwd: String
+
+    public var id: String { "\(pid)-\(Int(started))" }
+
+    /// The `proc://<pid>?started=<epoch>&cmd=<text>` URL the core's process watcher accepts.
+    public var url: String { ProcessTarget.url(pid: pid, started: started, command: command) }
+
+    /// A short name for menus and the default label: the program and its arguments, without its directory.
+    public var title: String {
+        let parts = command.split(separator: " ", omittingEmptySubsequences: true)
+        guard let first = parts.first else { return command }
+        let program = first.split(separator: "/").last.map(String.init) ?? String(first)
+        return ([program] + parts.dropFirst().map(String.init)).joined(separator: " ")
+    }
+}
+
+public enum ProcessTarget {
+    public static let scheme = "proc://"
+
+    public static func isProcessURL(_ url: String) -> Bool {
+        url.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix(scheme)
+    }
+
+    public static func url(pid: Int, started: Double, command: String) -> String {
+        var url = "\(scheme)\(pid)?started=\(Int(started))"
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        if !command.isEmpty, let escaped = command.addingPercentEncoding(withAllowedCharacters: allowed) {
+            url += "&cmd=" + escaped
+        }
+        return url
+    }
+}

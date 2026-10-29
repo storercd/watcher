@@ -129,3 +129,15 @@ import Testing
         #expect(!LongTermTrigger.available(for: "https://github.com/a/b/issues/1").contains(.checks))
     }
 }
+
+@Suite struct TerminalCommandTests {
+    @Test func buildsProcessURLAndShortTitle() {
+        let command = TerminalCommand(
+            pid: 42, tty: "ttys006", started: 1_700_000_000.4, elapsed: 5,
+            command: "/usr/bin/python sync.py ehs cheer", cwd: "/work")
+        #expect(command.url == "proc://42?started=1700000000&cmd=%2Fusr%2Fbin%2Fpython%20sync.py%20ehs%20cheer")
+        #expect(command.title == "python sync.py ehs cheer")
+        #expect(ProcessTarget.isProcessURL(command.url))
+        #expect(!ProcessTarget.isProcessURL("app://a.b"))
+    }
+}

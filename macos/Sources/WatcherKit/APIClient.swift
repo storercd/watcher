@@ -74,6 +74,10 @@ public final class APIClient: @unchecked Sendable {
         try await send("POST", "/v1/watchers/\(id)/acknowledge")
     }
 
+    public func terminalCommands() async throws -> [TerminalCommand] {
+        try JSONDecoder().decode([TerminalCommand].self, from: try await send("GET", "/v1/processes"))
+    }
+
     public func pollNow() async throws {
         try await send("POST", "/v1/poll")
     }

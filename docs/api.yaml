@@ -63,6 +63,11 @@ paths:
     post:
       summary: Mark the current actionable (success/failure) result as seen
       responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}, "404": {description: Unknown watcher}}
+  /v1/processes:
+    get:
+      summary: Commands currently running in a terminal (foreground children of an interactive shell), for the process picker; watch one with a proc:// URL
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {type: array, items: {type: object, properties: {pid: {type: integer}, tty: {type: string}, started: {type: number, description: Epoch seconds}, elapsed: {type: integer, description: Seconds}, command: {type: string}, cwd: {type: string}}}}}}}
   /v1/poll:
     post:
       summary: Poll every watcher now
