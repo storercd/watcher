@@ -82,10 +82,15 @@ struct ContentView: View {
         }
     }
 
+    private func openableURL(_ item: WatcherItem) -> URL? {
+        guard let text = item.url, !ProcessTarget.isProcessURL(text) else { return nil }
+        return URL(string: text)
+    }
+
     private func open(_ item: WatcherItem) {
         if let target = item.url.flatMap({ AppTarget(url: $0) }) {
             NSRunningApplication.runningApplications(withBundleIdentifier: target.bundleID).first?.activate()
-        } else if let url = item.url.flatMap(URL.init(string:)) {
+        } else if let url = openableURL(item) {
             NSWorkspace.shared.open(url)
         }
     }
@@ -107,7 +112,7 @@ struct ContentView: View {
                     .listRowBackground(highlight(for: item))
                     .contextMenu {
                         if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
-                        if item.url.flatMap(URL.init(string:)) != nil {
+                        if openableURL(item) != nil {
                             Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
                                 open(item)
                             }

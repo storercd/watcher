@@ -37,6 +37,7 @@ from watcher.watchers.github_actions_run import GitHubActionsRunWatcher  # noqa:
 from watcher.watchers.github_item import GitHubItemWatcher, triggers_for_url
 from watcher.watchers.github_pr import GitHubPRWatcher  # noqa: F401
 from watcher.watchers.jenkins import JenkinsWatcher  # noqa: F401
+from watcher.watchers.process import ProcessWatcher  # noqa: F401
 
 logger = logging.getLogger("watcher.engine")
 

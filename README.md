@@ -6,7 +6,8 @@ Actions workflow runs, and AWS Step Functions executions (paste the console URL;
 Copilot app sessions (paste the session ID; alerts when the session is done or
 needs your input by reading `~/.copilot/session-state/<id>/events.jsonl`, an
 undocumented format that may change), and the progress bar of any running
-macOS app (pick it from the Add dialog's "Running app…" menu) — and notifies
+macOS app (pick it from the Add dialog's "Running app…" menu), and commands
+running in a terminal (pick one from "Running command…") — and notifies
 you when they become actionable (e.g. a build finishes or all checks pass).
 
 ## What it does
@@ -150,6 +151,19 @@ Settings → Privacy & Security for this. The detection is heuristic and was
 verified against Lightroom Classic only; apps whose Dock icons change for other
 reasons could be misread.
 
+### Running command (process) watcher
+
+Click **+**, then **Running command…** to pick a command that is currently
+running in the foreground of any terminal (VS Code, Terminal.app, iTerm, …);
+it can be started before Watcher knew about it. Stored as
+`proc://<pid>?started=<epoch>[&cmd=<text>]`. Watcher polls the process with
+`ps` and reports `building` while it runs, then notifies once when it exits.
+Nothing is installed in your shell, and no terminal output is read. The start
+time is recorded so a recycled pid isn't mistaken for the original process.
+
+The exit code of an unrelated process isn't available, so a finished command is
+always reported as success ("Process finished"), never failure.
+
 ### GitHub PR / GitHub Actions run watcher setup
 
 GitHub PR watchers poll `gh pr view <pr_url> --json ...` to read the PR's
@@ -205,6 +219,7 @@ watcher/
     jenkins.py      # JenkinsWatcher plugin (polls <job_url>/api/json)
     github_pr.py    # GitHubPRWatcher plugin (polls `gh pr view` status checks)
     github_actions_run.py # GitHubActionsRunWatcher plugin (polls `gh run view`)
+    process.py      # ProcessWatcher plugin (polls `ps` until a terminal command exits)
     aws_step_function.py # AwsStepFunctionWatcher plugin (polls `aws stepfunctions describe-execution`, tries every AWS profile)
   notifiers/
     base.py         # abstract Notifier interface

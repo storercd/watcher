@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+from unittest import mock
 
 import pytest
 
@@ -99,6 +100,13 @@ def test_settings_and_state(server):
 
     state = call(server, "GET", "/v1/state")[1]
     assert state["settings"]["poll_interval"] == 20 and state["watchers"] == [] and state["update"] is None
+
+
+def test_processes_lists_terminal_commands(server):
+    """GET /v1/processes returns the terminal command listing."""
+    listing = [{"pid": 1, "tty": "ttys001", "started": 1.0, "elapsed": 2, "command": "sleep 9", "cwd": "/"}]
+    with mock.patch("watcher.api.server.processes.list_terminal_commands", return_value=listing):
+        assert call(server, "GET", "/v1/processes") == (200, listing)
 
 
 def test_shutdown_sets_flag(server):
