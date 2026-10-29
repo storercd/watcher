@@ -115,10 +115,8 @@ def run_gh(*args: str, timeout: float) -> "subprocess.CompletedProcess[str]":
 
     Returns:
         The first successful result, otherwise the original failed result.
-
-    Raises:
-        FileNotFoundError: If ``gh`` isn't installed.
-        subprocess.TimeoutExpired: If the initial call times out.
+        ``FileNotFoundError`` and ``subprocess.TimeoutExpired`` from the
+        initial call propagate to the caller.
     """
     proc = subprocess.run(
         gh_command(*args), capture_output=True, text=True, timeout=timeout, check=False
