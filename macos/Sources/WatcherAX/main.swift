@@ -137,7 +137,9 @@ func findBar(in px: Pixels) -> Bar? {
     for y in 0..<px.height {
         var candidate: Bar?
         let rowRuns = runs(in: px, row: y)
-        search: for i in 0..<rowRuns.count {
+        // Keep the widest match: a bar's border or antialiased edge is a short run that can
+        // also look like a "fill" next to the track, and would otherwise win by coming first.
+        for i in 0..<rowRuns.count {
             let fill = rowRuns[i]
             // A real bar sits inside its icon: there is something on both sides of it.
             guard fill.length >= 2, i > 0 else { continue }
@@ -147,8 +149,8 @@ func findBar(in px: Pixels) -> Bar? {
                 if track.length >= 3 {
                     // Judge the whole bar (fill + track) so a mostly-full bar still matches.
                     if track.end - fill.start >= minBar, distance(fill.color, track.color) >= 60, track.end < px.width {
-                        candidate = Bar(left: fill.start, right: track.end, top: y, bottom: y + 1, fill: fill.length + gap / 2, split: fill.end)
-                        break search
+                        let match = Bar(left: fill.start, right: track.end, top: y, bottom: y + 1, fill: fill.length + gap / 2, split: fill.end)
+                        if candidate == nil || match.width > candidate!.width { candidate = match }
                     }
                     break
                 }
