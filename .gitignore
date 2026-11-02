@@ -36,3 +36,6 @@ htmlcov/
 # SwiftPM build output
 macos/.build/
 macos/.swiftpm/
+
+# Code-signing certificates must never be committed
+*.p12
