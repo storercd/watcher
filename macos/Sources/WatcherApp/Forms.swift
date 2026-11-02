@@ -28,11 +28,11 @@ struct WatcherForm: View {
 
     var body: some View {
         Form {
-            HStack {
-                TextField(
-                    "URL", text: $url,
-                    prompt: Text(longTerm ? "GitHub PR or issue URL" : "Jenkins job, GitHub PR or Actions run URL"))
-                if !longTerm {
+            TextField(
+                "URL", text: $url,
+                prompt: Text(longTerm ? "GitHub PR or issue URL" : "Jenkins job, GitHub PR or Actions run URL"))
+            if !longTerm {
+                HStack {
                     Menu("Running app…") {
                         ForEach(runningApps, id: \.bundleIdentifier) { app in
                             Button(app.localizedName ?? app.bundleIdentifier ?? "") { choose(app) }
