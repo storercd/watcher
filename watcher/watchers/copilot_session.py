@@ -11,6 +11,8 @@ types are ignored.
 * open turn or pending tool call -> running
 * last turn finished -> done (waiting on the user)
 
+A finished turn with a pending scheduled automation (clock icon) is idle, not done.
+
 Archived sessions (per the app's ``data.db``) keep their status, with " - archived"
 appended to the detail, like merged PRs.
 """
@@ -246,6 +248,33 @@ def agent_merge_pr(session_id: str, db_path: str = APP_DB_PATH) -> str:
     return f"PR #{row[0]}" if row else ""
 
 
+def scheduled_check(session_id: str, db_path: str = APP_DB_PATH) -> str:
+    """
+    The pending (unpaused) automation the Copilot app will wake this session with.
+
+    The app stores these in ``session_automations`` (shown as a clock icon). Any
+    failure to read the DB (missing or locked, schema change) means "none".
+
+    Returns:
+        The next run time (UTC ISO string) if one is scheduled, otherwise an empty string.
+    """
+    if not os.path.exists(db_path):
+        return ""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
+        try:
+            row = conn.execute(
+                "SELECT next_run_at FROM session_automations WHERE session_id = ? "
+                "AND next_run_at IS NOT NULL AND paused_at IS NULL ORDER BY next_run_at LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    return str(row[0]) if row else ""
+
+
 def app_title(session_id: str, db_path: str = APP_DB_PATH) -> str:
     """
     The session title shown in the Copilot app.
@@ -356,6 +385,10 @@ class CopilotSessionWatcher(Watcher):
             pr = agent_merge_pr(self.session_id)
             if pr:
                 status, detail, marker = Status.IDLE, f"Watching {pr} (agent merge)", ""
+            else:
+                next_run = scheduled_check(self.session_id)
+                if next_run:
+                    status, detail, marker = Status.IDLE, f"Waiting for scheduled check ({next_run})", ""
 
         if is_archived(self.session_id):
             detail = f"{detail} - archived"
