@@ -178,3 +178,13 @@ def test_scheduled_check(tmp_path):
     assert scheduled_check("s3", db) == ""
     assert scheduled_check("s4", db) == ""
     assert scheduled_check("s1", str(tmp_path / "missing.db")) == ""
+
+
+def test_default_label_includes_repo(tmp_path):
+    sid = "11111111-2222-3333-4444-555555555555"
+    (tmp_path / sid).mkdir()
+    (tmp_path / sid / "workspace.yaml").write_text("repository: storercd/watcher\nname: My task\n")
+    with mock.patch.object(copilot_session, "SESSION_STATE_DIR", str(tmp_path)), mock.patch.object(
+        copilot_session, "APP_DB_PATH", str(tmp_path / "none.db")
+    ):
+        assert CopilotSessionWatcher(sid).default_label() == "Copilot: [watcher] My task"
