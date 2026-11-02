@@ -181,6 +181,7 @@ def test_scheduled_check(tmp_path):
 
 
 def test_default_label_includes_repo(tmp_path):
+    """The default label includes the repository name from workspace.yaml."""
     sid = "11111111-2222-3333-4444-555555555555"
     (tmp_path / sid).mkdir()
     (tmp_path / sid / "workspace.yaml").write_text("repository: storercd/watcher\nname: My task\n")
