@@ -10,6 +10,8 @@
 # Environment:
 #   WATCHER_BUILD_NUMBER   build number (defaults to the git commit count)
 #   WATCHER_SIGN_IDENTITY  codesign identity (defaults to "-", ad-hoc)
+#   WATCHER_BUNDLE_ID      bundle identifier (defaults to com.storercd.watcher)
+#   WATCHER_APP_NAME       app bundle/display name (defaults to Watcher)
 
 set -euo pipefail
 
@@ -21,6 +23,9 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 icon_path="${repo_root}/packaging/macos/Watcher.icns"
+
+bundle_id="${WATCHER_BUNDLE_ID:-com.storercd.watcher}"
+app_name="${WATCHER_APP_NAME:-Watcher}"
 
 dest_arg="${1:-"${repo_root}/dist"}"
 mkdir -p "${dest_arg}"
@@ -56,7 +61,7 @@ PYEOF
 echo "Building native Watcher v${full_version} (build ${build_number})"
 
 work_dir="${repo_root}/build/native"
-rm -rf "${work_dir}" "${dest_dir}/Watcher.app"
+rm -rf "${work_dir}" "${dest_dir}/${app_name}.app"
 mkdir -p "${work_dir}"
 
 echo "==> Freezing the Python core"
@@ -74,7 +79,7 @@ echo "==> Building the SwiftUI app"
 swift build -c release --package-path "${repo_root}/macos"
 swift_bin="$(swift build -c release --package-path "${repo_root}/macos" --show-bin-path)/WatcherApp"
 
-app="${dest_dir}/Watcher.app"
+app="${dest_dir}/${app_name}.app"
 mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
 cp "${swift_bin}" "${app}/Contents/MacOS/Watcher"
 cp "$(dirname "${swift_bin}")/watcher-ax" "${app}/Contents/MacOS/watcher-ax"
@@ -86,9 +91,9 @@ cat > "${app}/Contents/Info.plist" <<PLISTEOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Watcher</string>
-    <key>CFBundleDisplayName</key><string>Watcher</string>
-    <key>CFBundleIdentifier</key><string>com.storercd.watcher</string>
+    <key>CFBundleName</key><string>${app_name}</string>
+    <key>CFBundleDisplayName</key><string>${app_name}</string>
+    <key>CFBundleIdentifier</key><string>${bundle_id}</string>
     <key>CFBundleExecutable</key><string>Watcher</string>
     <key>CFBundleIconFile</key><string>Watcher</string>
     <key>CFBundlePackageType</key><string>APPL</string>
