@@ -337,19 +337,33 @@ class CopilotSessionWatcher(Watcher):
         Returns:
             The derived label.
         """
-        title = app_title(self.session_id)
+        meta = self._workspace_meta()
+        repo = meta.get("repository", "").rsplit("/", 1)[-1]
+        if not repo and meta.get("git_root"):
+            repo = os.path.basename(meta["git_root"].rstrip("/"))
+        prefix = f"Copilot: [{repo}] " if repo else "Copilot: "
+        title = app_title(self.session_id) or meta.get("name", "")
         if title:
-            return f"Copilot: {title}"
+            return f"{prefix}{title}"
+        return f"Copilot session {self.session_id[:8]}"
+
+    def _workspace_meta(self) -> Dict[str, str]:
+        """
+        Read the simple ``key: value`` lines of workspace.yaml.
+
+        Returns:
+            The values by key; empty if the file is unreadable.
+        """
+        meta: Dict[str, str] = {}
         try:
             with open(os.path.join(self.session_dir, "workspace.yaml"), encoding="utf-8") as handle:
                 for line in handle:
-                    if line.startswith("name:"):
-                        name = line.split(":", 1)[1].strip().strip("'\"")
-                        if name:
-                            return f"Copilot: {name}"
+                    key, sep, value = line.partition(":")
+                    if sep and not line[:1].isspace():
+                        meta[key.strip()] = value.strip().strip("'\"")
         except OSError:
             pass
-        return f"Copilot session {self.session_id[:8]}"
+        return meta
 
     @property
     def display_url(self) -> Optional[str]:
