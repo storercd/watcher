@@ -157,3 +157,24 @@ def test_agent_merge_pr(tmp_path):
     assert agent_merge_pr("s3", db) == ""
     assert agent_merge_pr("s4", db) == ""
     assert agent_merge_pr("s1", str(tmp_path / "missing.db")) == ""
+
+
+def test_scheduled_check(tmp_path):
+    """Only unpaused automations with a next run count as a pending scheduled check."""
+    import sqlite3
+
+    from watcher.watchers.copilot_session import scheduled_check
+
+    db = str(tmp_path / "data.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE session_automations (session_id TEXT, next_run_at TEXT, paused_at TEXT)")
+    conn.execute("INSERT INTO session_automations VALUES ('s1', '2026-11-02T19:22:40.000Z', NULL)")
+    conn.execute("INSERT INTO session_automations VALUES ('s2', '2026-11-02T19:22:40.000Z', '2026-11-02T18:00:00Z')")
+    conn.execute("INSERT INTO session_automations VALUES ('s3', NULL, NULL)")
+    conn.commit()
+    conn.close()
+    assert scheduled_check("s1", db) == "2026-11-02T19:22:40.000Z"
+    assert scheduled_check("s2", db) == ""
+    assert scheduled_check("s3", db) == ""
+    assert scheduled_check("s4", db) == ""
+    assert scheduled_check("s1", str(tmp_path / "missing.db")) == ""
