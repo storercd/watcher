@@ -75,11 +75,11 @@ jobs:
           security import "${RUNNER_TEMP}/cert.p12" -k "${keychain}" \
             -P "${CERT_PASSWORD}" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s \
-            -k "${keychain_password}" "${keychain}"
+            -k "${keychain_password}" "${keychain}" >/dev/null
           security list-keychains -d user -s "${keychain}" login.keychain-db
           rm -f "${RUNNER_TEMP}/cert.p12"
           identity="$(security find-identity -p codesigning "${keychain}" \
-            | awk '/^ *1\)/ {print $2}')"
+            | grep -Eo '[0-9A-F]{40}' | head -n 1)"
           if [[ -z "${identity}" ]]; then
             echo "error: no code-signing identity found in the imported certificate." >&2
             exit 1
