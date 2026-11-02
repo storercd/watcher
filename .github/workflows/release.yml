@@ -84,6 +84,20 @@ jobs:
             echo "error: no code-signing identity found in the imported certificate." >&2
             exit 1
           fi
+          # Expiry watch: warn ahead of time, fail once expired.
+          cert_pem="$(security find-certificate -a -Z -p "${keychain}" \
+            | awk -v id="${identity}" '
+                /^SHA-1 hash:/ {keep = ($3 == id)}
+                keep && /-----BEGIN/ {on = 1}
+                on {print}
+                /-----END/ {on = 0}')"
+          expiry="$(echo "${cert_pem}" | openssl x509 -noout -enddate | cut -d= -f2)"
+          if ! echo "${cert_pem}" | openssl x509 -noout -checkend 0 >/dev/null; then
+            echo "::error title=Signing certificate expired::The code-signing certificate expired on ${expiry}. Create a new one and update the WATCHER_SIGNING_CERT_P12_BASE64 / WATCHER_SIGNING_CERT_PASSWORD secrets. Users will need to re-grant Accessibility / Screen Recording once."
+            exit 1
+          elif ! echo "${cert_pem}" | openssl x509 -noout -checkend $((45 * 86400)) >/dev/null; then
+            echo "::warning title=Signing certificate expiring soon::The code-signing certificate expires on ${expiry}. Replace the WATCHER_SIGNING_CERT_* secrets before then."
+          fi
           echo "signed=true" >> "$GITHUB_OUTPUT"
           echo "identity=${identity}" >> "$GITHUB_OUTPUT"
 
