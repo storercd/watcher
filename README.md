@@ -105,7 +105,7 @@ From the window:
     `https://github.com/owner/repo/actions/runs/123456`) and an optional
     label. Also uses your existing `gh` CLI login — see below.
 - Right-click a row to open it in the browser, edit it, or remove it;
-  double-click opens it in the browser.
+  clicking it opens it in the browser.
 - When a row turns green/red, click **Got it** to acknowledge the finished
   build and clear the highlight.
 - **Settings** (⌘,) has text size, keep-window-on-top, polling and ntfy options.
