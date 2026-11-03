@@ -38,12 +38,14 @@ public func decodeEvent(_ message: SSEParser.Message) throws -> EngineEvent? {
     struct W: Decodable { let watcher: WatcherItem }
     struct S: Decodable { let settings: Settings }
     struct R: Decodable { let id: String }
+    struct O: Decodable { let ids: [String] }
     struct N: Decodable { let title: String; let message: String; let id: String }
     switch message.event {
     case "state": return .state(try decoder.decode(EngineState.self, from: data))
     case "watcher_added": return .watcherAdded(try decoder.decode(W.self, from: data).watcher)
     case "watcher_updated": return .watcherUpdated(try decoder.decode(W.self, from: data).watcher)
     case "watcher_removed": return .watcherRemoved(id: try decoder.decode(R.self, from: data).id)
+    case "watchers_reordered": return .watchersReordered(ids: try decoder.decode(O.self, from: data).ids)
     case "settings_changed": return .settingsChanged(try decoder.decode(S.self, from: data).settings)
     case "update_available": return .updateAvailable(try decoder.decode(UpdateInfo.self, from: data))
     case "notification":

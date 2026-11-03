@@ -119,6 +119,7 @@ public enum EngineEvent: Sendable {
     case watcherAdded(WatcherItem)
     case watcherUpdated(WatcherItem)
     case watcherRemoved(id: String)
+    case watchersReordered(ids: [String])
     case settingsChanged(Settings)
     case updateAvailable(UpdateInfo)
     case notification(title: String, message: String, id: String)

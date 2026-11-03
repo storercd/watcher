@@ -104,23 +104,26 @@ struct ContentView: View {
                 .foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(shown) { item in
-                WatcherRow(item: item)
-                    .contentShape(Rectangle())
-                    .onTapGesture { open(item) }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(highlight(for: item))
-                    .contextMenu {
-                        if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
-                        if openableURL(item) != nil {
-                            Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
-                                open(item)
+            List {
+                ForEach(shown) { item in
+                    WatcherRow(item: item)
+                        .contentShape(Rectangle())
+                        .onTapGesture { open(item) }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(highlight(for: item))
+                        .contextMenu {
+                            if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
+                            if openableURL(item) != nil {
+                                Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
+                                    open(item)
+                                }
                             }
-                        }
-                        Button("Edit…") { editing = item }
-                        Divider()
-                        Button("Remove", role: .destructive) { store.remove(item) }
+                            Button("Edit…") { editing = item }
+                            Divider()
+                            Button("Remove", role: .destructive) { store.remove(item) }
                     }
+                }
+                .onMove { store.move(shown, from: $0, to: $1) }
             }
         }
     }

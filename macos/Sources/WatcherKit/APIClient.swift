@@ -70,6 +70,10 @@ public final class APIClient: @unchecked Sendable {
         try await send("DELETE", "/v1/watchers/\(id)")
     }
 
+    public func reorderWatchers(ids: [String]) async throws {
+        try await send("POST", "/v1/watchers/order", body: ["ids": ids])
+    }
+
     public func acknowledge(id: String) async throws {
         try await send("POST", "/v1/watchers/\(id)/acknowledge")
     }
