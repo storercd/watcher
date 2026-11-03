@@ -382,6 +382,26 @@ class Engine:
         self._publish({"type": "watcher_removed", "id": watcher_id})
         return True
 
+    def reorder_watchers(self, ids: List[str]) -> List[str]:
+        """
+        Set the watcher order and persist.
+
+        Args:
+            ids: Watcher ids in the desired order. Unknown ids are ignored; watchers
+                not listed keep their relative order after the listed ones.
+
+        Returns:
+            The resulting full list of ids.
+        """
+        with self._lock:
+            ordered = [i for i in dict.fromkeys(ids) if i in self.watchers]
+            rest = [i for i in self.watchers if i not in ordered]
+            self.watchers = {i: self.watchers[i] for i in ordered + rest}
+            self._save()
+            result = list(self.watchers)
+        self._publish({"type": "watchers_reordered", "ids": result})
+        return result
+
     def acknowledge(self, watcher_id: str) -> Optional[Dict[str, Any]]:
         """
         Mark a watcher's current actionable result as seen.

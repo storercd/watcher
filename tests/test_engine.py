@@ -168,3 +168,14 @@ def test_watchers_reload_from_config(tmp_path, monkeypatch):
 
     second = Engine(config_path=tmp_path / "c.json", check_updates=False, deliver_notifications=False)
     assert [w["id"] for w in second.list_watchers()] == [snap["id"]]
+
+
+def test_reorder_watchers_persists_and_publishes(engine, tmp_path):
+    """Reordering applies the given order, tolerates stale ids and survives reload."""
+    ids = [engine.add_watcher(f"fake://{n}")["id"] for n in "abc"]
+    events = []
+    engine.subscribe(events.append)
+    assert engine.reorder_watchers([ids[2], "gone", ids[0]]) == [ids[2], ids[0], ids[1]]
+    assert [w["id"] for w in engine.list_watchers()] == [ids[2], ids[0], ids[1]]
+    assert events[-1] == {"type": "watchers_reordered", "ids": [ids[2], ids[0], ids[1]]}
+    assert [w["id"] for w in load_config(tmp_path / "config.json")["watchers"]] == [ids[2], ids[0], ids[1]]

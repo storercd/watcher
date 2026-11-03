@@ -45,6 +45,13 @@ paths:
         "201": {description: Created, content: {application/json: {schema: {$ref: "#/components/schemas/Watcher"}}}}
         "400": {description: Missing or mistyped field}
         "422": {description: URL not recognized or rejected}
+  /v1/watchers/order:
+    post:
+      summary: Set the watcher order (ids not listed keep their relative order after the listed ones)
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [ids], properties: {ids: {type: array, items: {type: string}}}}}}
+      responses: {"200": {description: Resulting ids in order, content: {application/json: {schema: {type: array, items: {type: string}}}}}, "400": {description: Invalid ids}}
   /v1/watchers/{id}:
     parameters: [{name: id, in: path, required: true, schema: {type: string}}]
     get:
@@ -98,7 +105,7 @@ paths:
       description: |
         First event is `state` (same payload as `/v1/state`). Afterwards, one event per change;
         each `data` is JSON with a `type` field matching the event name:
-        `watcher_added` / `watcher_updated` (`watcher`), `watcher_removed` (`id`),
+        `watcher_added` / `watcher_updated` (`watcher`), `watcher_removed` (`id`), `watchers_reordered` (`ids`),
         `settings_changed` (`settings`), `update_available` (`version`, `url`, `name`),
         `notification` (`title`, `message`, `id`). A `: keepalive` comment is sent every 15s.
 

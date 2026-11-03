@@ -162,6 +162,7 @@ class _Handler(BaseHTTPRequestHandler):
             ("GET", f"{API_PREFIX}/watchers"): lambda: (HTTPStatus.OK, engine.list_watchers()),
             ("POST", f"{API_PREFIX}/watchers"): self._add_watcher,
             ("GET", f"{API_PREFIX}/processes"): lambda: (HTTPStatus.OK, processes.list_terminal_commands()),
+            ("POST", f"{API_PREFIX}/watchers/order"): self._reorder,
             ("POST", f"{API_PREFIX}/poll"): self._poll,
             ("GET", f"{API_PREFIX}/settings"): lambda: (HTTPStatus.OK, engine.get_settings()),
             ("PATCH", f"{API_PREFIX}/settings"): self._patch_settings,
@@ -240,6 +241,12 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
         return HTTPStatus.CREATED, snapshot
+
+    def _reorder(self) -> Tuple[HTTPStatus, Any]:
+        ids = self._read_json().get("ids")
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "'ids' must be a list of watcher ids")
+        return HTTPStatus.OK, self.server.engine.reorder_watchers(ids)
 
     def _poll(self) -> Tuple[HTTPStatus, Any]:
         self.server.engine.poll_now()

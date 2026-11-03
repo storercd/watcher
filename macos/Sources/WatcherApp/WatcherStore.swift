@@ -72,6 +72,8 @@ final class WatcherStore: ObservableObject {
             if let index = watchers.firstIndex(where: { $0.id == item.id }) { watchers[index] = item }
         case .watcherRemoved(let id):
             watchers.removeAll { $0.id == id }
+        case .watchersReordered(let ids):
+            watchers = Self.ordered(watchers, by: ids)
         case .settingsChanged(let new):
             settings = new
         case .updateAvailable(let info):
@@ -120,6 +122,29 @@ final class WatcherStore: ObservableObject {
             try await operation(client)
             return nil
         } catch { return error.localizedDescription }
+    }
+
+    private static func ordered(_ items: [WatcherItem], by ids: [String]) -> [WatcherItem] {
+        let rank = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+        return items.enumerated().sorted {
+            (rank[$0.element.id] ?? ids.count + $0.offset) < (rank[$1.element.id] ?? ids.count + $1.offset)
+        }.map(\.element)
+    }
+
+    /// Moves rows within a subset of the watchers (e.g. one tab), leaving the rest where they are.
+    func move(_ subset: [WatcherItem], from source: IndexSet, to destination: Int) {
+        var moved = subset
+        moved.move(fromOffsets: source, toOffset: destination)
+        let subsetIDs = Set(subset.map(\.id))
+        var queue = moved.makeIterator()
+        let ids = watchers.map { subsetIDs.contains($0.id) ? (queue.next()?.id ?? $0.id) : $0.id }
+        watchers = Self.ordered(watchers, by: ids)
+        run { try await $0.reorderWatchers(ids: ids) }
+    }
+
+    func moveToEdge(_ item: WatcherItem, in subset: [WatcherItem], top: Bool) {
+        guard let index = subset.firstIndex(where: { $0.id == item.id }) else { return }
+        move(subset, from: IndexSet(integer: index), to: top ? 0 : subset.count)
     }
 
     func acknowledge(_ item: WatcherItem) { run { try await $0.acknowledge(id: item.id) } }

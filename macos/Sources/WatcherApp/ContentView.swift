@@ -104,23 +104,30 @@ struct ContentView: View {
                 .foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(shown) { item in
-                WatcherRow(item: item)
-                    .contentShape(Rectangle())
-                    .onTapGesture { open(item) }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(highlight(for: item))
-                    .contextMenu {
-                        if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
-                        if openableURL(item) != nil {
-                            Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
-                                open(item)
+            List {
+                ForEach(shown) { item in
+                    WatcherRow(item: item)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { open(item) }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(highlight(for: item))
+                        .contextMenu {
+                            if item.unacknowledged { Button("Acknowledge") { store.acknowledge(item) } }
+                            if openableURL(item) != nil {
+                                Button(item.url.flatMap { AppTarget(url: $0) } != nil ? "Switch to App" : "Open in Browser") {
+                                    open(item)
+                                }
                             }
-                        }
-                        Button("Edit…") { editing = item }
-                        Divider()
-                        Button("Remove", role: .destructive) { store.remove(item) }
+                            Button("Edit…") { editing = item }
+                            Button("Move to Top") { store.moveToEdge(item, in: shown, top: true) }
+                                .disabled(shown.first?.id == item.id)
+                            Button("Move to Bottom") { store.moveToEdge(item, in: shown, top: false) }
+                                .disabled(shown.last?.id == item.id)
+                            Divider()
+                            Button("Remove", role: .destructive) { store.remove(item) }
                     }
+                }
+                .onMove { store.move(shown, from: $0, to: $1) }
             }
         }
     }

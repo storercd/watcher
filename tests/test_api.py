@@ -137,3 +137,14 @@ def test_event_stream_sends_state_then_events(server):
     assert event["event"] == "watcher_added"
     assert json.loads(event["data"])["watcher"]["url"] == "fake://one"
     conn.close()
+
+
+def test_reorder_endpoint(server):
+    """POST /v1/watchers/order reorders and validates its body."""
+    ids = []
+    for n in "ab":
+        status, body = call(server, "POST", "/v1/watchers", {"url": f"fake://{n}"})
+        ids.append(body["id"])
+    status, order = call(server, "POST", "/v1/watchers/order", {"ids": ids[::-1]})
+    assert status == 200 and order == ids[::-1]
+    assert call(server, "POST", "/v1/watchers/order", {"ids": "x"})[0] == 400
