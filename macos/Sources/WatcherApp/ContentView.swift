@@ -108,7 +108,7 @@ struct ContentView: View {
                 ForEach(shown) { item in
                     WatcherRow(item: item)
                         .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { open(item) }
+                        .onTapGesture { open(item) }
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(highlight(for: item))
                         .contextMenu {
