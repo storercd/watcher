@@ -142,6 +142,11 @@ final class WatcherStore: ObservableObject {
         run { try await $0.reorderWatchers(ids: ids) }
     }
 
+    func moveToEdge(_ item: WatcherItem, in subset: [WatcherItem], top: Bool) {
+        guard let index = subset.firstIndex(where: { $0.id == item.id }) else { return }
+        move(subset, from: IndexSet(integer: index), to: top ? 0 : subset.count)
+    }
+
     func acknowledge(_ item: WatcherItem) { run { try await $0.acknowledge(id: item.id) } }
     func remove(_ item: WatcherItem) { run { try await $0.removeWatcher(id: item.id) } }
     func pollNow() { run { try await $0.pollNow() } }

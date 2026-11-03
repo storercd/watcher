@@ -108,7 +108,7 @@ struct ContentView: View {
                 ForEach(shown) { item in
                     WatcherRow(item: item)
                         .contentShape(Rectangle())
-                        .onTapGesture { open(item) }
+                        .onTapGesture(count: 2) { open(item) }
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(highlight(for: item))
                         .contextMenu {
@@ -119,6 +119,10 @@ struct ContentView: View {
                                 }
                             }
                             Button("Edit…") { editing = item }
+                            Button("Move to Top") { store.moveToEdge(item, in: shown, top: true) }
+                                .disabled(shown.first?.id == item.id)
+                            Button("Move to Bottom") { store.moveToEdge(item, in: shown, top: false) }
+                                .disabled(shown.last?.id == item.id)
                             Divider()
                             Button("Remove", role: .destructive) { store.remove(item) }
                     }
