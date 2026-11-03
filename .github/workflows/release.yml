@@ -118,21 +118,17 @@ jobs:
           tag_name: v${{ steps.version.outputs.full_version }}
           name: Watcher v${{ steps.version.outputs.full_version }}
           files: Watcher-${{ steps.version.outputs.full_version }}-macos.zip
-          # Unsigned/unnotarized build (see README): first launch needs the
-          # quarantine flag cleared, or macOS reports it as "damaged".
+          # The static `body` is prepended to the auto-generated notes
+          # (merged PRs / commits since the previous release).
+          generate_release_notes: true
           body: |
-            Unsigned build. **First launch:** macOS will say this app "is damaged and can't be opened" because it isn't Apple-notarized and the browser download adds a quarantine flag — this is not an actual corruption, and right-click → Open does not help with this particular dialog. Clear the flag once:
+            **First launch:** this build isn't Apple-notarized (no paid Apple Developer account), so macOS will say the app "is damaged and can't be opened" after a browser download adds a quarantine flag. This is not actual corruption, and right-click → Open does not help with this particular dialog. Clear the flag once:
 
             ```bash
             xattr -cr /Applications/Watcher.app   # or wherever you dragged it
             ```
 
-            **After updating:** each unsigned build has a new code identity, so macOS may keep Watcher's Accessibility / Screen Recording entries switched on but stop honoring them ("Accessibility permission is not granted"). Toggling does not help; reset them and grant again when prompted:
-
-            ```bash
-            tccutil reset Accessibility com.storercd.watcher
-            tccutil reset ScreenCapture com.storercd.watcher
-            ```
-
             Build ${{ steps.version.outputs.build_number }} from commit ${{ github.sha }}.
+
+            ---
 
