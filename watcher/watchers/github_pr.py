@@ -457,6 +457,20 @@ def _status_from_checks(rollup: List[Dict[str, Any]]) -> Tuple[Status, str]:
     return Status.SUCCESS, f"All {total} checks passed"
 
 
+def _state_key(head_sha: Optional[str], status: Status) -> Optional[str]:
+    """
+    Key the notification state by commit, with a suffix for user-action statuses.
+
+    Returns:
+        The key, or None when the head SHA is unknown.
+    """
+    if head_sha is None:
+        return None
+    if status in (Status.APPROVAL_REQUIRED, Status.NEEDS_INPUT):
+        return f"{head_sha}#{status.value}"
+    return head_sha
+
+
 def _default_label_from_url(pr_url: str) -> str:
     """
     Derive a short ``owner/repo#123`` label from a GitHub PR URL.
@@ -583,9 +597,7 @@ class GitHubPRWatcher(Watcher):
         # Approval-required is tracked under its own key so that once the run
         # is approved, the resulting success/failure on the same commit still
         # notifies instead of looking like an already-seen state.
-        state_key = None
-        if head_sha is not None:
-            state_key = f"{head_sha}#{status.value}" if status in (Status.APPROVAL_REQUIRED, Status.NEEDS_INPUT) else head_sha
+        state_key = _state_key(head_sha, status)
 
         unacknowledged = (
             status.is_actionable and state_key is not None and state_key != self.acknowledged_head_sha

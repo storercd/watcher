@@ -7,8 +7,8 @@ so these tests run offline and fast, with no real ``gh`` auth required.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -377,23 +377,28 @@ class TestCopilotReviewStalled:
             return _copilot_review_stalled(PR_URL, now=self.NOW)
 
     def test_old_unanswered_request_is_stalled(self):
+        """Old unanswered request is stalled."""
         assert self._stalled([{"event": "review_requested", "at": "2026-11-05T16:09:51Z"}])
 
     def test_recent_request_is_not_stalled(self):
+        """Recent request is not stalled."""
         assert not self._stalled([{"event": "review_requested", "at": "2026-11-05T16:27:00Z"}])
 
     def test_reviewed_or_removed_is_not_stalled(self):
+        """Reviewed or removed is not stalled."""
         requested = {"event": "review_requested", "at": "2026-11-05T16:09:51Z"}
         assert not self._stalled([requested, {"event": "reviewed", "at": "2026-11-05T16:15:00Z"}])
         assert not self._stalled([requested, {"event": "review_request_removed", "at": "2026-11-05T16:12:00Z"}])
 
     def test_gh_failure_is_not_stalled(self):
+        """Gh failure is not stalled."""
         with patch("watcher.watchers.github_pr.run_gh", return_value=MagicMock(returncode=1, stdout="")):
             assert not _copilot_review_stalled(PR_URL, now=self.NOW)
 
     @patch("watcher.watchers.github_pr._copilot_review_stalled", return_value=True)
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_success_detail_mentions_stall(self, mock_run, _stalled):
+        """Success detail mentions stall."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
         result = GitHubPRWatcher(pr_url=PR_URL).check()
         assert result.status == Status.NEEDS_INPUT
@@ -414,6 +419,7 @@ class TestOpenCopilotReviewIssues:
         return MagicMock(returncode=0, stdout=json.dumps(body))
 
     def test_counts_only_unresolved_copilot_threads(self):
+        """Counts only unresolved copilot threads."""
         proc = self._graphql(
             [(False, "copilot-pull-request-reviewer"), (False, "Copilot"), (True, "Copilot"), (False, "alice")]
         )
@@ -421,12 +427,14 @@ class TestOpenCopilotReviewIssues:
             assert _count_open_copilot_review_threads(PR_URL) == 2
 
     def test_failure_counts_zero(self):
+        """Failure counts zero."""
         with patch("watcher.watchers.github_pr.run_gh", return_value=MagicMock(returncode=1, stdout="")):
             assert _count_open_copilot_review_threads(PR_URL) == 0
 
     @pytest.mark.parametrize("count,text", [(1, "1 open Copilot review issue"), (3, "3 open Copilot review issues")])
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_detail_shows_open_issues(self, mock_run, count, text):
+        """Detail shows open issues."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
         with patch("watcher.watchers.github_pr._count_open_copilot_review_threads", return_value=count):
             result = GitHubPRWatcher(pr_url=PR_URL).check()
@@ -447,22 +455,26 @@ class TestPreviouslyMissedCopilotIssues:
             return _count_previously_missed_copilot_issues(PR_URL)
 
     def test_uses_latest_review_summary(self):
+        """Uses latest review summary."""
         old = "<!-- ccr-overview-v2 -->\n<summary><strong>3 open issues</strong></summary>"
         new = "<!-- ccr-overview-v2 -->\n**No open issues**\n<summary><strong>5 previously missed issues</strong>"
         assert self._count(("2026-11-04T18:49:39Z", old), ("2026-11-05T16:48:36Z", new)) == 5
         assert self._count(("2026-11-05T16:48:36Z", new), ("2026-11-06T09:00:00Z", old)) == 0
 
     def test_singular_and_absent(self):
+        """Singular and absent."""
         assert self._count(("2026-11-05T16:48:36Z", "<!-- ccr-overview-v2 -->\n1 previously missed issue")) == 1
         assert self._count(("2026-11-05T16:48:36Z", "<!-- ccr-overview-v2 -->\n**No open issues**")) == 0
 
     def test_ignores_non_overview_reviews_and_failures(self):
+        """Ignores non overview reviews and failures."""
         assert self._count(("2026-11-05T16:48:36Z", "5 previously missed issues")) == 0
         with patch("watcher.watchers.github_pr.run_gh", return_value=MagicMock(returncode=1, stdout="")):
             assert _count_previously_missed_copilot_issues(PR_URL) == 0
 
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
     def test_detail_shows_open_and_missed(self, mock_run):
+        """Detail shows open and missed."""
         mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
         with patch("watcher.watchers.github_pr._count_previously_missed_copilot_issues", return_value=5):
             result = GitHubPRWatcher(pr_url=PR_URL).check()
