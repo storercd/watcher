@@ -3,6 +3,7 @@ import Foundation
 public enum WatchStatus: String, Codable, Sendable {
     case unknown, idle, building, success, failure, error
     case approvalRequired = "approval_required"
+    case needsInput = "needs_input"
 }
 
 public struct WatcherItem: Codable, Identifiable, Equatable, Sendable {

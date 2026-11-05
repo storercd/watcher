@@ -35,6 +35,10 @@ COPILOT_SESSION_MAX_AGE = timedelta(hours=3)
 
 _COPILOT_START_EVENT = "copilot_work_started"
 
+# A requested Copilot review that hasn't produced a run or review after this
+# long is considered stalled (GitHub sometimes drops automatic requests).
+COPILOT_REVIEW_STALL_AFTER = timedelta(minutes=10)
+
 _PR_URL_RE = re.compile(r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)")
 
 
@@ -197,6 +201,161 @@ def _count_copilot_review_runs_in_progress(pr_url: str, head_sha: str) -> int:
         return 0
 
 
+def _copilot_review_stalled(pr_url: str, now: Optional[datetime] = None) -> bool:
+    """
+    Whether a Copilot review was requested but never started.
+
+    True when the latest Copilot ``review_requested`` timeline event is older than
+    ``COPILOT_REVIEW_STALL_AFTER`` and no later Copilot review or request removal
+    exists. Callers must already have ruled out an in-progress review run.
+    Best-effort: any failure yields False.
+
+    Returns:
+        True if a Copilot review request appears stuck.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return False
+    endpoint = f"repos/{match.group('owner')}/{match.group('repo')}/issues/{match.group('number')}/timeline"
+    jq = (
+        '.[] | select((.event == "review_requested" or .event == "review_request_removed")'
+        ' and ((.requested_reviewer.login // "") | test("^copilot"; "i"))'
+        ' or (.event == "reviewed" and ((.user.login // "") | test("^copilot"; "i"))))'
+        ' | {event, at: (.created_at // .submitted_at)}'
+    )
+    try:
+        proc = run_gh("api", endpoint, "--paginate", "--jq", jq, timeout=REQUEST_TIMEOUT_SECONDS)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    if proc.returncode != 0:
+        return False
+    requested: Optional[datetime] = None
+    settled: Optional[datetime] = None
+    for line in proc.stdout.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = _parse_ts(item.get("at"))
+        if not ts:
+            continue
+        if item.get("event") == "review_requested":
+            requested = max(requested, ts) if requested else ts
+        else:
+            settled = max(settled, ts) if settled else ts
+    if not requested or (settled and settled >= requested):
+        return False
+    return (now or datetime.now(timezone.utc)) - requested > COPILOT_REVIEW_STALL_AFTER
+
+
+_REVIEW_THREADS_QUERY = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes { isResolved comments(first: 1) { nodes { author { login } } } }
+      }
+    }
+  }
+}
+"""
+
+
+def _count_open_copilot_review_threads(pr_url: str) -> int:
+    """
+    Count unresolved review threads that Copilot's review started.
+
+    Best-effort: any failure yields 0. Only the first 100 threads are inspected.
+
+    Returns:
+        The number of unresolved Copilot-authored review threads.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return 0
+    try:
+        proc = run_gh(
+            "api", "graphql",
+            "-f", f"query={_REVIEW_THREADS_QUERY}",
+            "-f", f"owner={match.group('owner')}",
+            "-f", f"repo={match.group('repo')}",
+            "-F", f"number={match.group('number')}",
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if proc.returncode != 0:
+            return 0
+        threads = json.loads(proc.stdout)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        return 0
+    count = 0
+    for thread in threads:
+        if thread.get("isResolved"):
+            continue
+        comments = (thread.get("comments") or {}).get("nodes") or []
+        login = ((comments[0].get("author") or {}).get("login") or "") if comments else ""
+        if login.lower().startswith("copilot"):
+            count += 1
+    return count
+
+
+_MISSED_ISSUES_RE = re.compile(r"(\d+)\s+previously\s+missed\s+issues?", re.IGNORECASE)
+
+
+def _count_previously_missed_copilot_issues(pr_url: str) -> int:
+    """
+    Read how many "previously missed" issues Copilot's latest review lists.
+
+    Copilot reports problems in unchanged code in its review summary rather than
+    as review threads. The summary format is undocumented, so parsing is tolerant
+    and best-effort: any failure or non-matching text yields 0.
+
+    Returns:
+        The count from the newest Copilot review summary, or 0.
+    """
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return 0
+    endpoint = f"repos/{match.group('owner')}/{match.group('repo')}/pulls/{match.group('number')}/reviews"
+    jq = '.[] | select((.user.login // "") | test("^copilot"; "i")) | {at: .submitted_at, body}'
+    try:
+        proc = run_gh("api", endpoint, "--paginate", "--jq", jq, timeout=REQUEST_TIMEOUT_SECONDS)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 0
+    if proc.returncode != 0:
+        return 0
+    latest: Optional[Tuple[str, str]] = None
+    for line in proc.stdout.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        at, body = item.get("at") or "", item.get("body") or ""
+        if "ccr-overview" in body and (latest is None or at > latest[0]):
+            latest = (at, body)
+    found = _MISSED_ISSUES_RE.search(latest[1]) if latest else None
+    return int(found.group(1)) if found else 0
+
+
+def _copilot_issues_suffix(pr_url: str) -> str:
+    """
+    Summarize Copilot's outstanding review issues for the status detail.
+
+    Open issues are the live unresolved Copilot review threads; "previously
+    missed" issues come from the latest review summary.
+
+    Returns:
+        A string like `` - 0 open, 5 previously missed Copilot review issues``,
+        or an empty string when there is nothing outstanding.
+    """
+    open_issues = _count_open_copilot_review_threads(pr_url)
+    missed = _count_previously_missed_copilot_issues(pr_url)
+    if not open_issues and not missed:
+        return ""
+    if missed:
+        return f" - {open_issues} open, {missed} previously missed Copilot review issues"
+    return f" - {open_issues} open Copilot review issue{'s' if open_issues != 1 else ''}"
+
+
 def _latest_failure_time(rollup: List[Dict[str, Any]]) -> Optional[datetime]:
     """
     Find the latest completion time among failing checks.
@@ -296,6 +455,20 @@ def _status_from_checks(rollup: List[Dict[str, Any]]) -> Tuple[Status, str]:
     if failing:
         return Status.FAILURE, f"{failing}/{total} checks failed"
     return Status.SUCCESS, f"All {total} checks passed"
+
+
+def _state_key(head_sha: Optional[str], status: Status) -> Optional[str]:
+    """
+    Key the notification state by commit, with a suffix for user-action statuses.
+
+    Returns:
+        The key, or None when the head SHA is unknown.
+    """
+    if head_sha is None:
+        return None
+    if status in (Status.APPROVAL_REQUIRED, Status.NEEDS_INPUT):
+        return f"{head_sha}#{status.value}"
+    return head_sha
 
 
 def _default_label_from_url(pr_url: str) -> str:
@@ -408,6 +581,13 @@ class GitHubPRWatcher(Watcher):
                 detail = f"{detail}, Copilot review in progress"
             else:
                 status, detail = Status.BUILDING, f"Copilot review in progress ({detail})"
+        elif status == Status.SUCCESS and _copilot_review_stalled(self.pr_url):
+            # The request was dropped; only the user can nudge it (remove and re-request).
+            status = Status.NEEDS_INPUT
+            detail = f"Copilot review requested but never started; remove and re-request it ({detail})"
+
+        if (data.get("state") or "").upper() == "OPEN":
+            detail = f"{detail}{_copilot_issues_suffix(self.pr_url)}"
 
         # Merged PRs keep their check-derived status (a force-merge over
         # failing checks isn't green); we only annotate the detail.
@@ -417,9 +597,7 @@ class GitHubPRWatcher(Watcher):
         # Approval-required is tracked under its own key so that once the run
         # is approved, the resulting success/failure on the same commit still
         # notifies instead of looking like an already-seen state.
-        state_key = None
-        if head_sha is not None:
-            state_key = f"{head_sha}#approval" if status == Status.APPROVAL_REQUIRED else head_sha
+        state_key = _state_key(head_sha, status)
 
         unacknowledged = (
             status.is_actionable and state_key is not None and state_key != self.acknowledged_head_sha

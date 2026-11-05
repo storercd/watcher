@@ -128,7 +128,7 @@ components:
         trigger: {type: string, nullable: true, description: Long-term trigger; null for immediate watchers}
         poll_interval: {type: number, nullable: true, description: Per-watcher seconds between checks; null uses the global interval}
         url: {type: string, nullable: true}
-        status: {type: string, enum: [unknown, idle, building, success, failure, approval_required, error]}
+        status: {type: string, enum: [unknown, idle, building, success, failure, approval_required, needs_input, error]}
         detail: {type: string}
         last_checked: {type: number, nullable: true, description: Unix seconds; null if never checked}
         unacknowledged: {type: boolean, description: Actionable result still awaiting acknowledgment}
