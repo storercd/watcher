@@ -75,6 +75,12 @@ paths:
       summary: Commands currently running in a terminal (foreground children of an interactive shell), for the process picker; watch one with a proc:// URL
       responses:
         "200": {description: OK, content: {application/json: {schema: {type: array, items: {type: object, properties: {pid: {type: integer}, tty: {type: string}, started: {type: number, description: Epoch seconds}, elapsed: {type: integer, description: Seconds}, command: {type: string}, cwd: {type: string}}}}}}}
+  /v1/copilot-sessions:
+    get:
+      parameters: [{name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 5}}]
+      summary: Non-archived GitHub Copilot app sessions, those held open by a live process first, then newest events first, for the session picker; watch one by passing its id as the url
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}, title: {type: string}, repository: {type: string}, branch: {type: string}, cwd: {type: string}, updated: {type: number, description: Epoch seconds of last activity}, open: {type: boolean, description: A live Copilot process holds the session open}, status: {type: string, description: "Watcher status (building, success, approval_required, idle, ...)"}, detail: {type: string}}}}}}}
   /v1/poll:
     post:
       summary: Poll every watcher now

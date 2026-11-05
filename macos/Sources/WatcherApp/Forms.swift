@@ -22,6 +22,8 @@ struct WatcherForm: View {
     @State private var windowTitle = ""
     @State private var readDockIcon = false
     @State private var commands: [TerminalCommand] = []
+    @State private var sessions: [CopilotSession] = []
+    @State private var sessionLimit = 5
 
     private var appTarget: AppTarget? { longTerm ? nil : AppTarget(url: url) }
     private var triggerChoices: [LongTermTrigger] { LongTermTrigger.available(for: url) }
@@ -46,6 +48,24 @@ struct WatcherForm: View {
                         }
                         Divider()
                         Button("Refresh") { loadCommands() }
+                    }
+                    .fixedSize()
+                    Menu("Copilot session…") {
+                        if sessions.isEmpty { Text("No Copilot sessions found") }
+                        ForEach(sessions) { session in
+                            Button(sessionTitle(session)) { choose(session) }
+                                .foregroundStyle(isTracked(session) ? .secondary : .primary)
+                        }
+                        Divider()
+                        if sessions.count >= sessionLimit {
+                            Button("More…") {
+                                sessionLimit += 5
+                                loadSessions()
+                            }
+                        } else if !sessions.isEmpty {
+                            Text("No more sessions")
+                        }
+                        Button("Refresh") { loadSessions() }
                     }
                     .fixedSize()
                 }
@@ -101,6 +121,7 @@ struct WatcherForm: View {
         .padding().frame(width: 460)
         .onAppear {
             loadCommands()
+            loadSessions()
             guard let existing else {
                 longTerm = defaultLongTerm
                 return
@@ -129,6 +150,47 @@ struct WatcherForm: View {
             _ = await store.perform { loaded = try await $0.terminalCommands() }
             commands = loaded
         }
+    }
+
+    private func loadSessions() {
+        Task {
+            var loaded: [CopilotSession] = []
+            let limit = sessionLimit
+            _ = await store.perform { loaded = try await $0.copilotSessions(limit: limit) }
+            sessions = loaded
+        }
+    }
+
+    private func choose(_ session: CopilotSession) {
+        url = session.url
+        if label.isEmpty { label = "Copilot: \(session.displayName)" }
+    }
+
+    private func isTracked(_ session: CopilotSession) -> Bool {
+        store.watchers.contains { $0.url?.lowercased().contains(session.id) == true }
+    }
+
+    private func sessionTitle(_ session: CopilotSession) -> String {
+        var text = "\(statusBadge(session)) \(session.displayName) (\(formatAge(session.updated)))"
+        if !session.open { text += " – not open" }
+        if isTracked(session) { text += " – already watching" }
+        return text
+    }
+
+    private func statusBadge(_ session: CopilotSession) -> String {
+        switch session.status {
+        case "approval_required": return "❓"
+        case "building": return "⏳"
+        case "success": return "✅"
+        default: return "•"
+        }
+    }
+
+    private func formatAge(_ epoch: Double) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince1970 - epoch))
+        if seconds >= 86400 { return "\(seconds / 86400)d ago" }
+        if seconds >= 3600 { return "\(seconds / 3600)h ago" }
+        return seconds >= 60 ? "\(seconds / 60)m ago" : "just now"
     }
 
     private func choose(_ command: TerminalCommand) {

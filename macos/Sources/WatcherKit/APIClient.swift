@@ -19,7 +19,7 @@ public final class APIClient: @unchecked Sendable {
     }
 
     private func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
-        var request = URLRequest(url: base.appendingPathComponent(path))
+        var request = URLRequest(url: URL(string: base.absoluteString + path) ?? base.appendingPathComponent(path))
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
@@ -80,6 +80,11 @@ public final class APIClient: @unchecked Sendable {
 
     public func terminalCommands() async throws -> [TerminalCommand] {
         try JSONDecoder().decode([TerminalCommand].self, from: try await send("GET", "/v1/processes"))
+    }
+
+    public func copilotSessions(limit: Int = 5) async throws -> [CopilotSession] {
+        try JSONDecoder().decode(
+            [CopilotSession].self, from: try await send("GET", "/v1/copilot-sessions?limit=\(limit)"))
     }
 
     public func pollNow() async throws {
