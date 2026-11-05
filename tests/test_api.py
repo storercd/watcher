@@ -151,6 +151,7 @@ def test_reorder_endpoint(server):
 
 
 def test_copilot_sessions_endpoint(server):
+    """The endpoint passes the limit query through and rejects a bad one."""
     with mock.patch("watcher.core.copilot_sessions.list_sessions", return_value=[]) as listing:
         assert call(server, "GET", "/v1/copilot-sessions?limit=10") == (200, [])
         listing.assert_called_with(10)

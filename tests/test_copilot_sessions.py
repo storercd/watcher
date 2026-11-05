@@ -27,6 +27,7 @@ def _make(root, sid, mtime, pid=None, title="t"):
 
 @pytest.fixture
 def root(tmp_path):
+    """Point the session state dir at a temp dir with no app DB and a fake pid check."""
     with mock.patch.object(copilot_session, "SESSION_STATE_DIR", str(tmp_path)), mock.patch.object(
         copilot_session, "APP_DB_PATH", str(tmp_path / "none.db")
     ), mock.patch.object(copilot_sessions, "_pid_alive", lambda pid: pid != 999):
@@ -34,6 +35,7 @@ def root(tmp_path):
 
 
 def test_open_first_then_recent(root):
+    """Open sessions sort ahead of the rest, each by recency."""
     _make(root, IDS[0], 100, pid=1)
     _make(root, IDS[1], 300, pid=1, title="new")
     _make(root, IDS[2], 200)  # no lock
@@ -46,12 +48,14 @@ def test_open_first_then_recent(root):
 
 
 def test_limit(root):
+    """The limit caps the result."""
     for i, sid in enumerate(IDS[:3]):
         _make(root, sid, 100 + i, pid=1)
     assert len(copilot_sessions.list_sessions(2)) == 2
 
 
 def test_archived_skipped(root):
+    """Archived sessions are not listed."""
     _make(root, IDS[0], 100, pid=1)
     with mock.patch.object(copilot_session, "is_archived", lambda sid: True):
         assert copilot_sessions.list_sessions(5) == []

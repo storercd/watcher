@@ -91,8 +91,9 @@ def list_sessions(limit: int = DEFAULT_LIMIT) -> List[Dict[str, Any]]:
     """
     Non-archived Copilot sessions: open ones first, then the rest, each newest activity first.
 
-    "Open" means a live process holds the session's lock file. Recency is the mtime of ``events.jsonl`` (``workspace.yaml``'s ``updated_at``
-    can lag behind). Directories without a ``workspace.yaml`` are skipped.
+    "Open" means a live process holds the session's lock file. Recency is the mtime of
+    ``events.jsonl`` (``workspace.yaml``'s ``updated_at`` can lag behind).
+    Directories without a ``workspace.yaml`` are skipped.
 
     Returns:
         Dicts with id, title, repository, branch, cwd, updated (epoch seconds), open, status and detail.

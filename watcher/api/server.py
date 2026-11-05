@@ -155,7 +155,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def _copilot_sessions(self) -> Tuple[HTTPStatus, Any]:
-        """List open Copilot sessions; ``?limit=N`` (1-50) sets how many."""
+        """
+        List Copilot sessions; ``?limit=N`` (1-50) sets how many.
+
+        Returns:
+            The status and JSON body for the response.
+        """
         query = parse_qs(urlsplit(self.path).query)
         try:
             limit = min(max(int(query.get("limit", [copilot_sessions.DEFAULT_LIMIT])[0]), 1), 50)
