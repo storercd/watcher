@@ -24,6 +24,9 @@ struct WatcherForm: View {
     @State private var commands: [TerminalCommand] = []
     @State private var sessions: [CopilotSession] = []
     @State private var sessionLimit = 5
+    @State private var showSessions = false
+    @State private var sessionsLoading = false
+    @State private var sessionsError: String?
 
     private var appTarget: AppTarget? { longTerm ? nil : AppTarget(url: url) }
     private var triggerChoices: [LongTermTrigger] { LongTermTrigger.available(for: url) }
@@ -50,24 +53,11 @@ struct WatcherForm: View {
                         Button("Refresh") { loadCommands() }
                     }
                     .fixedSize()
-                    Menu("Copilot session…") {
-                        if sessions.isEmpty { Text("No Copilot sessions found") }
-                        ForEach(sessions) { session in
-                            Button(sessionTitle(session)) { choose(session) }
-                                .foregroundStyle(isTracked(session) ? .secondary : .primary)
-                        }
-                        Divider()
-                        if sessions.count >= sessionLimit {
-                            Button("More…") {
-                                sessionLimit += 5
-                                loadSessions()
-                            }
-                        } else if !sessions.isEmpty {
-                            Text("No more sessions")
-                        }
-                        Button("Refresh") { loadSessions() }
+                    Button("Copilot session…") {
+                        loadSessions()
+                        showSessions = true
                     }
-                    .fixedSize()
+                    .popover(isPresented: $showSessions, arrowEdge: .bottom) { sessionPopover }
                 }
             }
             if longTerm {
@@ -156,14 +146,68 @@ struct WatcherForm: View {
         Task {
             var loaded: [CopilotSession] = []
             let limit = sessionLimit
-            _ = await store.perform { loaded = try await $0.copilotSessions(limit: limit) }
-            sessions = loaded
+            sessionsLoading = true
+            let error = await store.perform { loaded = try await $0.copilotSessions(limit: limit) }
+            sessionsLoading = false
+            sessionsError = error
+            if error == nil { sessions = loaded }
         }
     }
 
     private func choose(_ session: CopilotSession) {
         url = session.url
         if label.isEmpty { label = "Copilot: \(session.displayName)" }
+    }
+
+    private var sessionPopover: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let sessionsError {
+                Text("Could not load sessions: \(sessionsError)").foregroundStyle(.red)
+            } else if sessions.isEmpty {
+                Text(sessionsLoading ? "Loading…" : "No Copilot sessions found").foregroundStyle(.secondary)
+            }
+            ForEach(sessions) { session in
+                let tracked = isTracked(session)
+                Button {
+                    choose(session)
+                    showSessions = false
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(statusBadge(session))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(session.displayName).lineLimit(1)
+                            Text(sessionSubtitle(session, tracked: tracked)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(tracked || !session.open ? 0.55 : 1)
+            }
+            Divider()
+            HStack {
+                if sessions.count >= sessionLimit {
+                    Button("More…") {
+                        sessionLimit += 5
+                        loadSessions()
+                    }
+                } else if !sessions.isEmpty {
+                    Text("No more sessions").foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Refresh") { loadSessions() }
+            }
+        }
+        .padding(12)
+        .frame(width: 380)
+    }
+
+    private func sessionSubtitle(_ session: CopilotSession, tracked: Bool) -> String {
+        var parts = [formatAge(session.updated), session.detail]
+        if !session.open { parts.append("not open") }
+        if tracked { parts.append("already watching") }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func isTracked(_ session: CopilotSession) -> Bool {
