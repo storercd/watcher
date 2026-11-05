@@ -115,7 +115,9 @@ class TestChecksTrigger:
             "watcher.watchers.github_pr._fetch_copilot_events", return_value=[]
         ), patch("watcher.watchers.github_pr._count_runs_awaiting_approval", return_value=0), patch(
             "watcher.watchers.github_pr._count_copilot_review_runs_in_progress", return_value=0
-        ):
+        ), patch("watcher.watchers.github_pr._copilot_review_stalled", return_value=False), patch(
+            "watcher.watchers.github_pr._count_open_copilot_review_threads", return_value=0), patch(
+            "watcher.watchers.github_pr._count_previously_missed_copilot_issues", return_value=0):
             result = watcher.check()
         assert result.status == Status.SUCCESS and result.newly_actionable
         assert watcher.last_head_sha == "abc"

@@ -168,6 +168,14 @@ If workflow runs for the PR's head commit are blocked waiting for approval
 as `approval_required` (yellow) and notifies you, since you need to open the PR
 and approve the run, even if a Copilot session is still active.
 
+If checks passed but a Copilot review was requested more than 10 minutes ago
+and never started (GitHub occasionally drops automatic requests), the PR is
+reported as `needs_input` (orange) and notifies you; remove Copilot from the
+reviewers and re-request it. Open PRs also show Copilot's outstanding review
+issues in the detail: unresolved Copilot review threads ("3 open Copilot review
+issues"), plus the "previously missed" issues in unchanged code that Copilot
+lists only in its review summary ("0 open, 5 previously missed Copilot review issues").
+
 This requires the [GitHub CLI](https://cli.github.com/) (`gh`) to be
 installed and already authenticated on your machine:
 
