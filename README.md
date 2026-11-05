@@ -3,7 +3,7 @@
 Watcher is a small desktop window that watches
 things — Jenkins jobs, GitHub pull request status checks, GitHub
 Actions workflow runs, and AWS Step Functions executions (paste the console URL; requires the `aws` CLI), and local GitHub
-Copilot app sessions (paste the session ID; alerts when the session is done or
+Copilot app sessions (pick an open one from the Add dialog's "Copilot session…" menu — newest activity first, five at a time, with a status badge and a "More…" item — or paste the session ID; alerts when the session is done or
 needs your input by reading `~/.copilot/session-state/<id>/events.jsonl`, an
 undocumented format that may change), and the progress bar of any running
 macOS app (pick it from the Add dialog's "Running app…" menu), and commands

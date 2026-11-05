@@ -148,3 +148,11 @@ def test_reorder_endpoint(server):
     status, order = call(server, "POST", "/v1/watchers/order", {"ids": ids[::-1]})
     assert status == 200 and order == ids[::-1]
     assert call(server, "POST", "/v1/watchers/order", {"ids": "x"})[0] == 400
+
+
+def test_copilot_sessions_endpoint(server):
+    """The endpoint passes the limit query through and rejects a bad one."""
+    with mock.patch("watcher.core.copilot_sessions.list_sessions", return_value=[]) as listing:
+        assert call(server, "GET", "/v1/copilot-sessions?limit=10") == (200, [])
+        listing.assert_called_with(10)
+        assert call(server, "GET", "/v1/copilot-sessions?limit=x")[0] == 422

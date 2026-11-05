@@ -19,9 +19,10 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, Optional, Tuple
+from urllib.parse import parse_qs, urlsplit
 
 from watcher import __full_version__
-from watcher.core import processes
+from watcher.core import copilot_sessions, processes
 from watcher.core.engine import Engine
 
 logger = logging.getLogger("watcher.api")
@@ -153,6 +154,20 @@ class _Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802
         self._dispatch("DELETE")
 
+    def _copilot_sessions(self) -> Tuple[HTTPStatus, Any]:
+        """
+        List Copilot sessions; ``?limit=N`` (1-50) sets how many.
+
+        Returns:
+            The status and JSON body for the response.
+        """
+        query = parse_qs(urlsplit(self.path).query)
+        try:
+            limit = min(max(int(query.get("limit", [copilot_sessions.DEFAULT_LIMIT])[0]), 1), 50)
+        except ValueError:
+            return HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "limit must be an integer"}
+        return HTTPStatus.OK, copilot_sessions.list_sessions(limit)
+
     # -- routing --------------------------------------------------------
     def _route(self, method: str, path: str) -> Tuple[HTTPStatus, Any]:
         engine = self.server.engine
@@ -162,6 +177,7 @@ class _Handler(BaseHTTPRequestHandler):
             ("GET", f"{API_PREFIX}/watchers"): lambda: (HTTPStatus.OK, engine.list_watchers()),
             ("POST", f"{API_PREFIX}/watchers"): self._add_watcher,
             ("GET", f"{API_PREFIX}/processes"): lambda: (HTTPStatus.OK, processes.list_terminal_commands()),
+            ("GET", f"{API_PREFIX}/copilot-sessions"): self._copilot_sessions,
             ("POST", f"{API_PREFIX}/watchers/order"): self._reorder,
             ("POST", f"{API_PREFIX}/poll"): self._poll,
             ("GET", f"{API_PREFIX}/settings"): lambda: (HTTPStatus.OK, engine.get_settings()),

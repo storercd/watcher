@@ -51,6 +51,29 @@ public struct AppTarget: Equatable, Sendable {
     }
 }
 
+/// A local Copilot app session, as listed by the core's `/v1/copilot-sessions` endpoint.
+public struct CopilotSession: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let repository: String
+    public let branch: String
+    public let cwd: String
+    public let updated: Double
+    public let open: Bool
+    public let status: String
+    public let detail: String
+
+    /// The text the core's Copilot session watcher accepts as its URL.
+    public var url: String { id }
+
+    /// "[repo] title" for menus and the default label.
+    public var displayName: String {
+        let repo = repository.split(separator: "/").last.map(String.init) ?? ""
+        let name = title.isEmpty ? "Session \(id.prefix(8))" : title
+        return repo.isEmpty ? name : "[\(repo)] \(name)"
+    }
+}
+
 /// A command running in a terminal, as listed by the core's `/v1/processes` endpoint.
 public struct TerminalCommand: Codable, Identifiable, Equatable, Sendable {
     public let pid: Int

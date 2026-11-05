@@ -130,6 +130,15 @@ import Testing
     }
 }
 
+@Suite struct CopilotSessionTests {
+    @Test func decodesAndNames() throws {
+        let json = #"[{"id":"abc12345-0000-0000-0000-000000000000","title":"Fix bug","repository":"o/watcher","branch":"b","cwd":"/w","updated":1.5,"open":true,"status":"building","detail":"Running"}]"#
+        let sessions = try JSONDecoder().decode([CopilotSession].self, from: Data(json.utf8))
+        #expect(sessions[0].displayName == "[watcher] Fix bug")
+        #expect(sessions[0].url == sessions[0].id)
+    }
+}
+
 @Suite struct TerminalCommandTests {
     @Test func buildsProcessURLAndShortTitle() {
         let command = TerminalCommand(
