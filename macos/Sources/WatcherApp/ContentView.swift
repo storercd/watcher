@@ -46,6 +46,15 @@ struct ContentView: View {
         }
         .frame(minWidth: 460, minHeight: 320)
         .toolbar {
+            if BuildChannel.isDev {
+                ToolbarItem(placement: .navigation) {
+                    Text("DEV")
+                        .font(.caption.bold()).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.orange))
+                        .help("Local development build - not the official release")
+                }
+            }
             ToolbarItem {
                 Picker("Mode", selection: Binding(get: { store.settings.mode }, set: { store.setMode($0) })) {
                     ForEach(store.settings.modes, id: \.self) { Text($0).tag($0) }

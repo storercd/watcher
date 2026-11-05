@@ -92,6 +92,12 @@ The build script uses a project-local `.venv`/`venv` interpreter if one
 exists, otherwise `python3` on `PATH`. Drag the resulting `Watcher.app` into
 the Dock or `/Applications`. See `packaging/macos/Watcher.icns` for the icon.
 
+Builds made anywhere other than GitHub Actions are marked as dev builds so
+you can tell them from the official release at a glance: an orange "DEV"
+badge in the toolbar, "DEV BUILD" in the window title, a "DEV" Dock badge, a
+`-dev` version suffix and the `packaging/macos/WatcherDev.icns` icon. Set
+`WATCHER_BUILD_CHANNEL=release` or `dev` to override.
+
 From the window:
 
 - Click **+** and paste a Jenkins job, GitHub PR or GitHub Actions run URL;
