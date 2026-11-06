@@ -275,6 +275,43 @@ def scheduled_check(session_id: str, db_path: str = APP_DB_PATH) -> str:
     return str(row[0]) if row else ""
 
 
+def busy_children(session_id: str, db_path: str = APP_DB_PATH, state_dir: Optional[str] = None) -> List[str]:
+    """
+    Titles of the non-archived sessions the given project/coordinator session created that are running.
+
+    Children are workspaces whose ``creator_session_id`` or ``coordinating_creator_session_id``
+    is this session; each child's own event log decides whether it is running. Any failure to
+    read the DB (missing or locked, schema change) means "none".
+
+    Returns:
+        The names of the running child sessions, empty if none.
+    """
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
+        try:
+            rows = conn.execute(
+                "SELECT COALESCE(session_id, id), name FROM workspaces WHERE archived_at IS NULL "
+                "AND (creator_session_id = ? OR coordinating_creator_session_id = ?)",
+                (session_id, session_id),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    base = state_dir or SESSION_STATE_DIR
+    busy = []
+    for child_id, name in rows:
+        try:
+            status, _detail, _marker = derive_status(_read_events(os.path.join(base, str(child_id), "events.jsonl")))
+        except OSError:
+            continue
+        if status == Status.BUILDING:
+            busy.append(str(name or child_id))
+    return busy
+
+
 def app_title(session_id: str, db_path: str = APP_DB_PATH) -> str:
     """
     The session title shown in the Copilot app.
@@ -395,7 +432,13 @@ class CopilotSessionWatcher(Watcher):
             self.last_status, self.last_detail = Status.ERROR, detail
             return CheckResult(status=Status.ERROR, detail=detail)
 
-        if marker.startswith("turn:"):
+        children = []
+        if status != Status.APPROVAL_REQUIRED:
+            children = busy_children(self.session_id, APP_DB_PATH, SESSION_STATE_DIR)
+        if children and status != Status.BUILDING:
+            status, marker = Status.BUILDING, ""
+            detail = f"Running (child: {children[0]}{f' +{len(children) - 1}' if len(children) > 1 else ''})"
+        elif marker.startswith("turn:"):
             pr = agent_merge_pr(self.session_id)
             if pr:
                 status, detail, marker = Status.IDLE, f"Watching {pr} (agent merge)", ""
