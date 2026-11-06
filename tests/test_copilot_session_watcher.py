@@ -189,3 +189,31 @@ def test_default_label_includes_repo(tmp_path):
         copilot_session, "APP_DB_PATH", str(tmp_path / "none.db")
     ):
         assert CopilotSessionWatcher(sid).default_label() == "Copilot: [watcher] My task"
+
+
+def test_busy_children_keep_project_running(tmp_path):
+    """A finished coordinator session reports running while a child session it created is busy."""
+    import sqlite3
+
+    parent, child = "aaaaaaaa-0000-0000-0000-000000000001", "bbbbbbbb-0000-0000-0000-000000000002"
+    state = tmp_path / "state"
+    for sid, events in ((parent, [ev("user.message"), ev("assistant.turn_end")]), (child, [ev("user.message")])):
+        (state / sid).mkdir(parents=True)
+        (state / sid / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
+    db = str(tmp_path / "data.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE workspaces (id TEXT, session_id TEXT, name TEXT, archived_at TEXT, "
+        "creator_session_id TEXT, coordinating_creator_session_id TEXT)"
+    )
+    conn.execute("INSERT INTO workspaces VALUES ('w1', ?, 'Child task', NULL, ?, NULL)", (child, parent))
+    conn.commit()
+    conn.close()
+    assert copilot_session.busy_children(parent, db, str(state)) == ["Child task"]
+    assert copilot_session.busy_children("other", db, str(state)) == []
+    with mock.patch.object(copilot_session, "SESSION_STATE_DIR", str(state)), mock.patch.object(
+        copilot_session, "APP_DB_PATH", db
+    ):
+        result = CopilotSessionWatcher(parent).check()
+        assert result.status == Status.BUILDING
+        assert "Child task" in result.detail
