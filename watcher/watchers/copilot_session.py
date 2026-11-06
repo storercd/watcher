@@ -432,7 +432,9 @@ class CopilotSessionWatcher(Watcher):
             self.last_status, self.last_detail = Status.ERROR, detail
             return CheckResult(status=Status.ERROR, detail=detail)
 
-        children = busy_children(self.session_id, APP_DB_PATH, SESSION_STATE_DIR) if status != Status.APPROVAL_REQUIRED else []
+        children = []
+        if status != Status.APPROVAL_REQUIRED:
+            children = busy_children(self.session_id, APP_DB_PATH, SESSION_STATE_DIR)
         if children and status != Status.BUILDING:
             status, marker = Status.BUILDING, ""
             detail = f"Running (child: {children[0]}{f' +{len(children) - 1}' if len(children) > 1 else ''})"
