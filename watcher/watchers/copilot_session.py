@@ -198,26 +198,33 @@ def is_archived(session_id: str, db_path: str = APP_DB_PATH) -> bool:
     """
     Whether the Copilot app has archived the session.
 
-    The app records this in its ``workspaces`` table (``archived_at``). Any
+    The app records this in ``workspaces.archived_at`` for project sessions and in
+    ``sessions.archived_at`` for chat sessions (which have no workspace row). Any
     failure to read it (missing or locked DB, schema change) means "not archived".
 
     Returns:
-        True if the session's workspace has an archive timestamp.
+        True if the session's workspace or session row has an archive timestamp.
     """
     if not os.path.exists(db_path):
         return False
+    queries = (
+        "SELECT 1 FROM workspaces WHERE (session_id = ? OR id = ?) AND archived_at IS NOT NULL LIMIT 1",
+        "SELECT 1 FROM sessions WHERE id = ? AND archived_at IS NOT NULL LIMIT 1",
+    )
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1)
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM workspaces WHERE (session_id = ? OR id = ?) AND archived_at IS NOT NULL LIMIT 1",
-                (session_id, session_id),
-            ).fetchone()
-        finally:
-            conn.close()
     except sqlite3.Error:
         return False
-    return row is not None
+    try:
+        for sql in queries:
+            try:
+                if conn.execute(sql, (session_id,) * sql.count("?")).fetchone():
+                    return True
+            except sqlite3.Error:
+                continue
+    finally:
+        conn.close()
+    return False
 
 
 def agent_merge_pr(session_id: str, db_path: str = APP_DB_PATH) -> str:
