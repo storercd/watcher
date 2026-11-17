@@ -119,6 +119,9 @@ def _run_gh_api_strict(*args: str) -> str:
     surface as an error rather than be mistaken for "nothing there", which
     would flip the status and re-alert once the connection returns.
 
+    Returns:
+        The command's stdout.
+
     Raises:
         RuntimeError: If gh is missing, times out, or exits non-zero.
     """
@@ -140,10 +143,8 @@ def _fetch_copilot_events(pr_url: str) -> List[Dict[str, Any]]:
     Fetch the PR timeline's Copilot work start/finish events, oldest first.
 
     Returns:
-        The ``{event, created_at}`` dicts for Copilot work events.
-
-    Raises:
-        RuntimeError: If the timeline can't be fetched.
+        The ``{event, created_at}`` dicts for Copilot work events. A failed
+        fetch propagates as ``RuntimeError``.
     """
     match = _PR_URL_RE.search(pr_url)
     if not match:
@@ -223,10 +224,8 @@ def _copilot_review_stalled(pr_url: str, now: Optional[datetime] = None) -> bool
     exists. Callers must already have ruled out an in-progress review run.
 
     Returns:
-        True if a Copilot review request appears stuck.
-
-    Raises:
-        RuntimeError: If the timeline can't be fetched.
+        True if a Copilot review request appears stuck. A failed fetch
+        propagates as ``RuntimeError``.
     """
     match = _PR_URL_RE.search(pr_url)
     if not match:
@@ -549,6 +548,44 @@ class GitHubPRWatcher(Watcher):
         """
         return bool(_PR_URL_RE.search(url))
 
+    def _resolve_status(self, head_sha: Optional[str], rollup: List[Dict[str, Any]]) -> Tuple[Status, str]:
+        """
+        Combine the check rollup with the secondary GitHub lookups.
+
+        Returns:
+            The status and detail. A failed lookup propagates as ``RuntimeError``.
+        """
+        status, detail = _status_from_checks(rollup)
+
+        awaiting_approval = _count_runs_awaiting_approval(self.pr_url, head_sha) if head_sha else 0
+
+        if awaiting_approval:
+            # Workflow runs (e.g. from Copilot's push) are blocked until
+            # someone approves them, so the user has to act - even if a
+            # Copilot session is still running.
+            return Status.APPROVAL_REQUIRED, f"{awaiting_approval} workflow run(s) awaiting approval"
+        if status == Status.FAILURE and _active_copilot_session(
+            _fetch_copilot_events(self.pr_url), _latest_failure_time(rollup)
+        ):
+            # Copilot is still working on it, so this isn't actionable yet.
+            return Status.BUILDING, f"Copilot is working on a fix ({detail})"
+        if (
+            status in (Status.SUCCESS, Status.BUILDING)
+            and head_sha
+            and _count_copilot_review_runs_in_progress(self.pr_url, head_sha)
+        ):
+            # Passing checks aren't "ready" while a Copilot review is pending.
+            if status == Status.BUILDING:
+                return status, f"{detail}, Copilot review in progress"
+            return Status.BUILDING, f"Copilot review in progress ({detail})"
+        if status == Status.SUCCESS and _copilot_review_stalled(self.pr_url):
+            # The request was dropped; only the user can nudge it (remove and re-request).
+            return (
+                Status.NEEDS_INPUT,
+                f"Copilot review requested but never started; remove and re-request it ({detail})",
+            )
+        return status, detail
+
     def check(self) -> CheckResult:
         """
         Poll the PR's status checks and report status/newly-actionable state.
@@ -565,36 +602,7 @@ class GitHubPRWatcher(Watcher):
 
         try:
             head_sha = data.get("headRefOid")
-            rollup = data.get("statusCheckRollup") or []
-            status, detail = _status_from_checks(rollup)
-
-            awaiting_approval = _count_runs_awaiting_approval(self.pr_url, head_sha) if head_sha else 0
-
-            if awaiting_approval:
-                # Workflow runs (e.g. from Copilot's push) are blocked until
-                # someone approves them, so the user has to act - even if a
-                # Copilot session is still running.
-                status = Status.APPROVAL_REQUIRED
-                detail = f"{awaiting_approval} workflow run(s) awaiting approval"
-            elif status == Status.FAILURE and _active_copilot_session(
-                _fetch_copilot_events(self.pr_url), _latest_failure_time(rollup)
-            ):
-                # Copilot is still working on it, so this isn't actionable yet.
-                status, detail = Status.BUILDING, f"Copilot is working on a fix ({detail})"
-            elif (
-                status in (Status.SUCCESS, Status.BUILDING)
-                and head_sha
-                and _count_copilot_review_runs_in_progress(self.pr_url, head_sha)
-            ):
-                # Passing checks aren't "ready" while a Copilot review is pending.
-                if status == Status.BUILDING:
-                    detail = f"{detail}, Copilot review in progress"
-                else:
-                    status, detail = Status.BUILDING, f"Copilot review in progress ({detail})"
-            elif status == Status.SUCCESS and _copilot_review_stalled(self.pr_url):
-                # The request was dropped; only the user can nudge it (remove and re-request).
-                status = Status.NEEDS_INPUT
-                detail = f"Copilot review requested but never started; remove and re-request it ({detail})"
+            status, detail = self._resolve_status(head_sha, data.get("statusCheckRollup") or [])
         except RuntimeError as exc:
             # A failed lookup must not be read as "nothing pending": that would
             # flip the status and re-alert once the connection returns.
