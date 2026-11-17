@@ -326,6 +326,29 @@ class TestCopilotReviewHoldsSuccess:
         assert result.newly_actionable
 
 
+class TestTransientLookupFailure:
+    """A failed secondary lookup is an error, not a status change that re-alerts later."""
+
+    @patch("watcher.watchers.github_pr._count_runs_awaiting_approval")
+    @patch("watcher.watchers.github_pr._run_gh_pr_view")
+    def test_failed_lookup_does_not_realert_after_recovery(self, mock_run, mock_count):
+        """An acknowledged result stays quiet across an outage."""
+        mock_run.return_value = _pr_data("aaa", [_check_run("SUCCESS")])
+        mock_count.return_value = 0
+        watcher = GitHubPRWatcher(pr_url=PR_URL)
+        assert watcher.check().newly_actionable
+        watcher.acknowledge()
+
+        mock_count.side_effect = RuntimeError("network down")
+        assert watcher.check().status == Status.ERROR
+
+        mock_count.side_effect = None
+        result = watcher.check()
+        assert result.status == Status.SUCCESS
+        assert not result.newly_actionable
+        assert not result.unacknowledged
+
+
 class TestApprovalRequired:
     """Tests for the approval-required (yellow) state."""
 
@@ -390,10 +413,12 @@ class TestCopilotReviewStalled:
         assert not self._stalled([requested, {"event": "reviewed", "at": "2026-11-05T16:15:00Z"}])
         assert not self._stalled([requested, {"event": "review_request_removed", "at": "2026-11-05T16:12:00Z"}])
 
-    def test_gh_failure_is_not_stalled(self):
-        """Gh failure is not stalled."""
-        with patch("watcher.watchers.github_pr.run_gh", return_value=MagicMock(returncode=1, stdout="")):
-            assert not _copilot_review_stalled(PR_URL, now=self.NOW)
+    def test_gh_failure_raises(self):
+        """A failed lookup raises instead of being read as "not stalled"."""
+        proc = MagicMock(returncode=1, stdout="", stderr="network down")
+        with patch("watcher.watchers.github_pr.run_gh", return_value=proc):
+            with pytest.raises(RuntimeError):
+                _copilot_review_stalled(PR_URL, now=self.NOW)
 
     @patch("watcher.watchers.github_pr._copilot_review_stalled", return_value=True)
     @patch("watcher.watchers.github_pr._run_gh_pr_view")
