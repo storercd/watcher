@@ -10,7 +10,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from watcher.core.base import Status
-from watcher.watchers.jenkins import JenkinsWatcher, _normalize_job_url, _status_from_job_json
+from watcher.watchers.jenkins import (
+    JenkinsWatcher,
+    _build_number_from_job_url,
+    _normalize_job_url,
+    _status_from_job_json,
+)
 
 
 def _job_json(color: str, build_number: int = None) -> dict:
@@ -104,6 +109,14 @@ class TestNormalizeJobUrl:
             _normalize_job_url("http://jenkins.example.com/job/2024")
             == "http://jenkins.example.com/job/2024"
         )
+
+    def test_extracts_build_number_from_build_url(self):
+        """A build URL exposes its trailing number without treating job names as builds."""
+        assert (
+            _build_number_from_job_url("http://jenkins.example.com/job/MAPS/job/Deploy/17/")
+            == 17
+        )
+        assert _build_number_from_job_url("http://jenkins.example.com/job/2024") is None
 
 
 class TestJenkinsWatcherCheck:
@@ -287,7 +300,24 @@ class TestJenkinsWatcherCheck:
         # poll as Status.UNKNOWN forever.
         watcher = JenkinsWatcher(job_url="https://jenkins.example.com/job/my-cool-job/645")
         assert watcher.job_url == "https://jenkins.example.com/job/my-cool-job"
-        assert watcher.label == "my-cool-job"
+        assert watcher.label == "my-cool-job #645"
+
+    def test_build_specific_url_adds_number_to_custom_label(self):
+        """A custom title still identifies the specific numbered build."""
+        watcher = JenkinsWatcher(
+            job_url="https://jenkins.example.com/job/Deploy/17/console",
+            label="Deploy Signals Workflow",
+        )
+        assert watcher.label == "Deploy Signals Workflow #17"
+        assert watcher.to_config()["label"] == "Deploy Signals Workflow #17"
+
+    def test_build_specific_url_does_not_duplicate_build_number(self):
+        """An existing build-number suffix is not appended twice."""
+        watcher = JenkinsWatcher(
+            job_url="https://jenkins.example.com/job/Deploy/17",
+            label="Deploy #17",
+        )
+        assert watcher.label == "Deploy #17"
 
 
 def test_normalize_strips_console_and_other_subpages():
