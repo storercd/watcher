@@ -45,6 +45,23 @@ def _normalize_job_url(job_url: str) -> str:
     return match.group(1) if match else stripped
 
 
+def _build_number_from_job_url(job_url: str) -> Optional[int]:
+    """
+    Extract a build number from a Jenkins build URL, if one is present.
+
+    Returns:
+        The build number, or ``None`` for a job-level URL.
+    """
+    stripped = job_url.strip().rstrip("/")
+    job_url_normalized = _normalize_job_url(stripped)
+    if not stripped.startswith(job_url_normalized + "/"):
+        return None
+
+    suffix = stripped[len(job_url_normalized) + 1 :]
+    match = re.match(r"^(\d+)(?:/|[?#]|$)", suffix)
+    return int(match.group(1)) if match else None
+
+
 def _fetch_job_json(job_url: str) -> Dict[str, Any]:
     """
     Fetch and parse ``<job_url>/api/json`` anonymously. Raises on failure.
@@ -102,8 +119,13 @@ class JenkinsWatcher(Watcher):
         notes: str = "",
     ):
         """Initialize a Jenkins watcher for the given job URL."""
+        self._url_build_number = _build_number_from_job_url(job_url)
         self.job_url = _normalize_job_url(job_url)
         super().__init__(watcher_id=watcher_id, label=label, notes=notes)
+        if self._url_build_number is not None:
+            suffix = f"#{self._url_build_number}"
+            if not self.label.endswith(suffix):
+                self.label = f"{self.label} {suffix}"
         # The last completed build number we've seen, used to detect a
         # genuinely new completion.
         self.last_build_number = last_build_number
